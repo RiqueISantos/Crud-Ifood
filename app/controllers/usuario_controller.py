@@ -8,7 +8,7 @@ class UsuarioController:
     @staticmethod
     def criar(dados):
         """Valida e persiste um novo usuário."""
-        campos_obrigatorios = ["nome", "email", "senha"]
+        campos_obrigatorios = ["nome", "email", "telefone"]
         for campo in campos_obrigatorios:
             if not dados.get(campo):
                 return None, f"Campo '{campo}' é obrigatório", 400
@@ -19,17 +19,11 @@ class UsuarioController:
         usuario = Usuario(
             nome=dados["nome"],
             email=dados["email"],
-            senha=generate_password_hash(dados["senha"]),
+            telefone=dados["telefone"]
         )
         db.session.add(usuario)
         db.session.commit()
         return usuario, None, 201
-
-    @staticmethod
-    def listar():
-        """Retorna todos os usuários ordenados por id."""
-        usuarios = Usuario.query.order_by(Usuario.id).all()
-        return usuarios, None, 200
 
     @staticmethod
     def buscar(id):
@@ -58,8 +52,8 @@ class UsuarioController:
                 return None, "E-mail já cadastrado por outro usuário", 409
             usuario.email = dados["email"]
 
-        if dados.get("senha"):
-            usuario.senha = generate_password_hash(dados["senha"])
+        if dados.get("telefone"):
+            usuario.telefone = dados["telefone"]
 
         db.session.commit()
         return usuario, None, 200
