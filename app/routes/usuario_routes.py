@@ -14,14 +14,6 @@ def criar_usuario():
     return UsuarioView.resposta_unico(resultado, status)
 
 
-@usuario_bp.route("/", methods=["GET"])
-def listar_usuarios():
-    resultado, erro, status = UsuarioController.listar()
-    if erro:
-        return UsuarioView.resposta_mensagem({"erro": erro}, status)
-    return UsuarioView.resposta_lista(resultado, status)
-
-
 @usuario_bp.route("/<int:id>", methods=["GET"])
 def buscar_usuario(id):
     resultado, erro, status = UsuarioController.buscar(id)
