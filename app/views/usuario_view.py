@@ -10,7 +10,7 @@ class UsuarioView:
             "id": usuario.id,
             "nome": usuario.nome,
             "email": usuario.email,
-            "criado_em": usuario.criado_em.isoformat(),
+            "criado_em": usuario.criado_em.isoformat() if usuario.criado_em else None,
         }
 
     @staticmethod
