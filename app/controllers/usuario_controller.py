@@ -1,70 +1,110 @@
-from werkzeug.security import generate_password_hash
-from ..database import db
-from ..models.usuario import Usuario
-
+from sqlalchemy.orm import Session
+from app.models.models import Usuario
 
 class UsuarioController:
 
-    @staticmethod
-    def criar(dados):
-        """Valida e persiste um novo usuário."""
-        campos_obrigatorios = ["nome", "email", "telefone"]
-        for campo in campos_obrigatorios:
-            if not dados.get(campo):
-                return None, f"Campo '{campo}' é obrigatório", 400
+    def __init__(self, db: Session, sms_service=None, email_service=None):
+        self.db = db
+        self.services = {
+            "sms": sms_service,
+            "whatsapp": sms_service,
+            "email": email_service
+        }
 
-        if Usuario.query.filter_by(email=dados["email"]).first():
-            return None, "E-mail já cadastrado", 409
+    def _obter_servico(self, canal: str):
+        servico = self.services.get(canal.lower())
+        if not servico:
+            raise ValueError(f"Serviço de envio para o canal '{canal}' não configurado.")
+        return servico
+
+    def enviar_codigo(self, destino: str, canal: str, tipo_fluxo="cadastro") -> None:
+        usuario = self.db.query(Usuario).filter(
+            (Usuario.email == destino) | (Usuario.telefone == destino)
+        ).first()
+
+        if tipo_fluxo == "login" and not usuario:
+            raise ValueError("Usuário não encontrado.")
+        if tipo_fluxo == "cadastro" and usuario:
+            raise ValueError("Contato já cadastrado no sistema.")
+
+        servico = self._obter_servico(canal)
+        servico.enviar_verificacao(destino, canal, self.db)
+
+    def verificar_codigo(self, destino: str, codigo: str, canal: str) -> None:
+        servico = self._obter_servico(canal)
+        if not servico.verificar_codigo(destino, codigo, canal, self.db):
+            raise ValueError("Código inválido ou expirado.")
+
+    def autenticar_login(self, identificador: str, codigo: str, canal: str) -> Usuario:
+        self.verificar_codigo(identificador, codigo, canal)
+        
+        usuario = self.db.query(Usuario).filter(
+            (Usuario.email == identificador) | (Usuario.telefone == identificador)
+        ).first()
+
+        if not usuario:
+            raise ValueError("Usuário não encontrado.")
+        return usuario
+
+    def criar_usuario(self, dados: dict) -> Usuario:
+        servico_wpp = self._obter_servico("sms")
+        servico_email = self._obter_servico("email")
+
+        if servico_wpp and not servico_wpp.esta_verificado(dados["telefone"], "sms", self.db):
+            raise ValueError("Celular não verificado.")
+        
+        if servico_email and not servico_email.esta_verificado(dados["email"], "email", self.db):
+            raise ValueError("E-mail não verificado.")
 
         usuario = Usuario(
-            nome=dados["nome"],
-            email=dados["email"],
-            telefone=dados["telefone"]
+            nome=dados.get("nome"),
+            email=dados.get("email"),
+            telefone=dados.get("telefone"),
+            documento=dados.get("documento")
         )
-        db.session.add(usuario)
-        db.session.commit()
-        return usuario, None, 201
+        
+        self.db.add(usuario)
+        self.db.commit()
+        
+        if servico_wpp:
+            servico_wpp.invalidar_verificacao(dados["telefone"], "whatsapp", self.db)
+        if servico_email:
+            servico_email.invalidar_verificacao(dados["email"], "email", self.db)
 
-    @staticmethod
-    def buscar(id):
-        """Busca um usuário pelo id."""
-        usuario = db.session.get(Usuario, id)
+        return usuario
+
+    def buscar(self, id: int) -> Usuario:
+        usuario = self.db.get(Usuario, id)
         if not usuario:
-            return None, "Usuário não encontrado", 404
-        return usuario, None, 200
+            raise ValueError("Usuário não encontrado.")
+        return usuario
 
-    @staticmethod
-    def atualizar(id, dados):
-        """Atualiza os dados de um usuário existente."""
-        usuario = db.session.get(Usuario, id)
-        if not usuario:
-            return None, "Usuário não encontrado", 404
+    def listar(self) -> list:
+        return self.db.query(Usuario).all()
 
-        if not dados:
-            return None, "Dados não fornecidos", 400
-
-        if dados.get("nome"):
-            usuario.nome = dados["nome"]
+    def atualizar(self, id: int, dados: dict) -> Usuario:
+        usuario = self.buscar(id)
 
         if dados.get("email"):
-            existente = Usuario.query.filter_by(email=dados["email"]).first()
+            novo_email = dados["email"].strip().lower()
+            existente = self.db.query(Usuario).filter_by(email=novo_email).first()
             if existente and existente.id != id:
-                return None, "E-mail já cadastrado por outro usuário", 409
-            usuario.email = dados["email"]
+                raise ValueError("E-mail já cadastrado por outro usuário.")
+            usuario.email = novo_email
 
+        if dados.get("nome"):
+            usuario.nome = dados["nome"].strip()
         if dados.get("telefone"):
-            usuario.telefone = dados["telefone"]
+            usuario.telefone = dados["telefone"].strip()
+        if dados.get("documento"):
+            usuario.documento = dados["documento"].strip()
 
-        db.session.commit()
-        return usuario, None, 200
+        self.db.commit()
+        self.db.refresh(usuario)
+        return usuario
 
-    @staticmethod
-    def deletar(id):
-        """Remove um usuário pelo id."""
-        usuario = db.session.get(Usuario, id)
-        if not usuario:
-            return None, "Usuário não encontrado", 404
-
-        db.session.delete(usuario)
-        db.session.commit()
-        return {"mensagem": f"Usuário {id} deletado com sucesso"}, None, 200
+    def deletar(self, id: int) -> dict:
+        usuario = self.buscar(id)
+        self.db.delete(usuario)
+        self.db.commit()
+        return {"mensagem": f"Usuário {id} deletado com sucesso."}
