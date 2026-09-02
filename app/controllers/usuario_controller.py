@@ -157,4 +157,47 @@ class UsuarioController:
             raise ValueError(f"Falha na autenticação com Google: {str(e)}")
 
 
-        
+
+    def autenticar_login_facebook(self, token_facebook: str) -> Usuario:
+        """
+        Valida o token do Facebook na Graph API, busca o usuário no banco e,
+        se não existir, realiza o cadastro automaticamente.
+        """
+        try:
+            # 1. Bate na API do Facebook pedindo o ID, Nome e E-mail desse token
+            url = f"https://graph.facebook.com/me?access_token={token_facebook}&fields=id,name,email"
+            resposta = req.get(url)
+            dados_fb = resposta.json()
+
+            # 2. Verifica se o token era inválido ou expirou
+            if "error" in dados_fb:
+                raise ValueError(f"Token do Facebook inválido: {dados_fb['error']['message']}")
+
+            email = dados_fb.get("email")
+            nome = dados_fb.get("name")
+
+            # 3. O Facebook permite criar conta com celular (sem e-mail). 
+            # Como seu sistema exige e-mail, precisamos travar isso.
+            if not email:
+                raise ValueError("O perfil do Facebook não compartilhou um e-mail válido.")
+
+            # 4. Busca o usuário pelo e-mail
+            usuario = self.db.query(Usuario).filter(Usuario.email == email).first()
+
+            # 5. Se não existir, cadastra no banco
+            if not usuario:
+                usuario = Usuario(
+                    nome=nome,
+                    email=email
+                    # Telefone e documento ficam vazios
+                )
+                self.db.add(usuario)
+                self.db.commit()
+                self.db.refresh(usuario)
+
+            return usuario
+
+        except ValueError as e:
+            raise e
+        except Exception as e:
+            raise ValueError(f"Falha na autenticação com Facebook: {str(e)}")

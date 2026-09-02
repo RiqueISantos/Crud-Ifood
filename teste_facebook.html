@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gerador de Token Facebook</title>
+</head>
+<body>
+    <h2>Faça login para gerar o Token:</h2>
+    
+    <!-- Botão Oficial do Facebook -->
+    <fb:login-button scope="public_profile,email" onlogin="checkLoginState();"></fb:login-button>
+
+    <script>
+      window.fbAsyncInit = function() {
+        FB.init({
+          appId      : '1798336045058515',
+          cookie     : true,
+          xfbml      : true,
+          version    : 'v19.0'
+        });
+      };
+
+      // Carrega o SDK
+      (function(d, s, id){
+         var js, fjs = d.getElementsByTagName(s)[0];
+         if (d.getElementById(id)) {return;}
+         js = d.createElement(s); js.id = id;
+         js.src = "https://connect.facebook.net/en_US/sdk.js";
+         fjs.parentNode.insertBefore(js, fjs);
+       }(document, 'script', 'facebook-jssdk'));
+
+      function checkLoginState() {
+        FB.getLoginStatus(function(response) {
+            if (response.status === 'connected') {
+                console.log("Copie o Token abaixo e cole no Postman:");
+                console.log(response.authResponse.accessToken);
+                document.body.innerHTML += `<br><b>Seu Token do FB:</b><br><textarea style="width:100%; height:100px;">${response.authResponse.accessToken}</textarea>`;
+            } else {
+                alert("Login falhou");
+            }
+        });
+      }
+    </script>
+</body>
+</html>

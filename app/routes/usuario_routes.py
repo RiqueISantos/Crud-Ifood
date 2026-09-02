@@ -303,3 +303,40 @@ def login_google():
         return jsonify({"erro": "Erro interno no servidor."}), 500
     finally:
         db.close()
+
+@usuario_bp.route('/api/auth/facebook', methods=['POST'])
+def login_facebook():
+    dados = request.get_json() or {}
+    token = dados.get("token")
+
+    if not token:
+        return jsonify({"erro": "Token não fornecido"}), 400
+        
+    db = SessionLocal()
+    try:
+        controller = UsuarioController(db)
+        usuario = controller.autenticar_login_facebook(token)
+        
+        # Geração do token JWT da sua aplicação
+        token_app = criar_token_jwt(usuario.id)
+
+        return jsonify({
+            "mensagem": "Login via Facebook realizado com sucesso!",
+            "access_token": token_app,
+            "token_type": "Bearer",
+            "usuario": {
+                "id": usuario.id,
+                "nome": usuario.nome,
+                "email": usuario.email,
+                "telefone": getattr(usuario, "telefone", None)
+            }
+        }), 200
+
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 401
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"erro": "Erro interno no servidor."}), 500
+    finally:
+        db.close()
