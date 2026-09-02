@@ -1,6 +1,14 @@
 from sqlalchemy.orm import Session
 from app.models.models import Usuario
+from google.oauth2 import id_token
+from google.auth.transport import requests
+from dotenv import load_dotenv
+import os
 
+# Carrega as variáveis de ambiente do arquivo .env
+load_dotenv()
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 class UsuarioController:
 
     def __init__(self, db: Session, sms_service=None, email_service=None):
@@ -108,3 +116,45 @@ class UsuarioController:
         self.db.delete(usuario)
         self.db.commit()
         return {"mensagem": f"Usuário {id} deletado com sucesso."}
+
+    def autenticar_login_google(self, token_google: str) -> Usuario:
+        """
+        Valida o token JWT do Google, busca o usuário no banco de dados e,
+        se não existir, realiza o cadastro automaticamente.
+        """
+        try:
+            # 1. Valida o token com os servidores do Google
+            idinfo = id_token.verify_oauth2_token(
+                token_google, 
+                requests.Request(), 
+                GOOGLE_CLIENT_ID
+            )
+            
+            email = idinfo.get("email")
+            nome = idinfo.get("name")
+
+            if not email:
+                raise ValueError("O token do Google não contém um e-mail válido.")
+
+            # 2. Busca o usuário pelo e-mail
+            usuario = self.db.query(Usuario).filter(Usuario.email == email).first()
+
+            # 3. Se o usuário não existir, cria um novo (Cadastro via Google)
+            if not usuario:
+                usuario = Usuario(
+                    nome=nome,
+                    email=email,
+                    # Telefone e documento ficam vazios, o usuário pode preencher depois no perfil
+                )
+                self.db.add(usuario)
+                self.db.commit()
+                self.db.refresh(usuario)
+
+            return usuario
+
+        except ValueError as e:
+            # Isso captura tokens inválidos, expirados ou o erro manual acima
+            raise ValueError(f"Falha na autenticação com Google: {str(e)}")
+
+
+        

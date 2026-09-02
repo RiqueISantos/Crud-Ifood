@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gerador de Token Google</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <h2>Faça login para gerar o Token:</h2>
+    
+    <div id="g_id_onload"
+         data-client_id="1020033884873-9hlgscnf3rvpi3el9s1dc4cfkcv6tltj.apps.googleusercontent.com"
+         data-callback="handleCredentialResponse">
+    </div>
+    <div class="g_id_signin" data-type="standard"></div>
+
+    <script>
+        function handleCredentialResponse(response) {
+            console.log("Copie o Token abaixo e cole no Postman:");
+            console.log(response.credential);
+            
+            // Também mostra na tela para facilitar
+            document.body.innerHTML += `<br><b>Seu Token:</b><br><textarea style="width:100%; height:200px;">${response.credential}</textarea>`;
+        }
+    </script>
+</body>
+</html>

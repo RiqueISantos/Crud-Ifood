@@ -25,6 +25,6 @@ class Usuario(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     nome = Column(String(50), nullable=False)
     email = Column(String(254), unique=True, nullable=False, index=True)
-    telefone = Column(String(20), nullable=False, index=True)
+    telefone = Column(String(20), nullable=True, index=True)
     documento = Column(String(14), nullable=True)
     criado_em = Column(DateTime, server_default=func.now())
