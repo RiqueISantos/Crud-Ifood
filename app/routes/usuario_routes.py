@@ -1,342 +1,186 @@
-import traceback
 from flask import Blueprint, request, jsonify
-from app.database import SessionLocal
-from app.controllers.usuario_controller import UsuarioController
-from app.views.usuario_view import UsuarioView
-from auth_service import OtpService
-from auth import token_obrigatorio
+from ..controllers.usuario_controller import UsuarioController
+from ..views.usuario_view import UsuarioView
+from ..models.usuario import Usuario
+from ..services.otp_store import enviar_otp, verificar_otp
 from auth import criar_token_jwt
-from twilio.base.exceptions import TwilioRestException
 
 usuario_bp = Blueprint("usuario", __name__)
 
-servico_otp = OtpService()
 
-
-@usuario_bp.route("/sms/enviar", methods=["POST"])
-def enviar_sms_numero():
-    dados    = request.get_json() or {}
-    telefone = dados.get("telefone", "").strip()
-
-    if not telefone:
-        return jsonify({"erro": "Telefone é obrigatório."}), 400
-
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db, sms_service=servico_otp)
-        controller.enviar_codigo(destino=telefone, canal="sms", tipo_fluxo="cadastro")
-        return jsonify({"mensagem": "Código enviado pelo WhatsApp/SMS."}), 200
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 400
-    except TwilioRestException:
-        return jsonify({"erro": "Não foi possível enviar o código. Verifique o número."}), 400
-    except Exception:
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
-
-
-@usuario_bp.route("/sms/verificar", methods=["POST"])
-def verificar_sms_numero():
-    dados    = request.get_json() or {}
-    telefone = dados.get("telefone", "").strip()
-    codigo   = dados.get("codigo",   "").strip()
-
-    if not telefone or not codigo:
-        return jsonify({"erro": "Telefone e código são obrigatórios."}), 400
-
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db, sms_service=servico_otp)
-        controller.verificar_codigo(destino=telefone, codigo=codigo, canal="sms")
-        return jsonify({"mensagem": "Celular verificado com sucesso."}), 200
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 400
-    except Exception:
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
-
-
-@usuario_bp.route("/email/enviar", methods=["POST"])
-def enviar_email_verificacao():
-    dados = request.get_json() or {}
-    email = dados.get("email", "").strip()
-
-    if not email:
-        return jsonify({"erro": "E-mail é obrigatório."}), 400
-
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db, email_service=servico_otp)
-        controller.enviar_codigo(destino=email, canal="email", tipo_fluxo="cadastro")
-        return jsonify({"mensagem": "Código de verificação enviado para o e-mail."}), 200
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 400
-    except Exception:
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
-
-
-@usuario_bp.route("/email/verificar", methods=["POST"])
-def verificar_email():
-    dados  = request.get_json() or {}
-    email  = dados.get("email",  "").strip()
-    codigo = dados.get("codigo", "").strip()
-
-    if not email or not codigo:
-        return jsonify({"erro": "E-mail e código são obrigatórios."}), 400
-
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db, email_service=servico_otp)
-        controller.verificar_codigo(destino=email, codigo=codigo, canal="email")
-        return jsonify({"mensagem": "E-mail verificado com sucesso."}), 200
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 400
-    except Exception:
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
-
+# ── CRUD base ────────────────────────────────────────────────────────────────
 
 @usuario_bp.route("/", methods=["POST"])
 def criar_usuario():
     dados = request.get_json() or {}
-    db    = SessionLocal()
-    try:
-        controller = UsuarioController(
-            db,
-            sms_service=servico_otp,
-            email_service=servico_otp,
-        )
-        usuario = controller.criar_usuario(dados)
-        return UsuarioView.resposta_unico(usuario, 201)
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 400
-    except Exception:
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
-
-
-@usuario_bp.route("/", methods=["GET"])
-def listar_usuarios():
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db)
-        usuarios   = controller.listar()
-        return UsuarioView.resposta_lista(usuarios, 200)
-    finally:
-        db.close()
+    resultado, erro, status = UsuarioController.criar(dados)
+    if erro:
+        return UsuarioView.resposta_mensagem({"erro": erro}, status)
+    return UsuarioView.resposta_unico(resultado, status)
 
 
 @usuario_bp.route("/<int:id>", methods=["GET"])
-@token_obrigatorio
-def buscar_usuario(usuario_id, id):
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db)
-        usuario    = controller.buscar(id)
-        return UsuarioView.resposta_unico(usuario, 200)
-    except ValueError as e:
-        return UsuarioView.resposta_mensagem({"erro": str(e)}, 404)
-    finally:
-        db.close()
+def buscar_usuario(id):
+    resultado, erro, status = UsuarioController.buscar(id)
+    if erro:
+        return UsuarioView.resposta_mensagem({"erro": erro}, status)
+    return UsuarioView.resposta_unico(resultado, status)
 
 
 @usuario_bp.route("/<int:id>", methods=["PUT"])
-@token_obrigatorio
-def atualizar_usuario(usuario_id, id):
-    
-    if usuario_id != id:
-        return jsonify({"erro": "Você não tem permissão para alterar este usuário."}), 403
-
+def atualizar_usuario(id):
     dados = request.get_json() or {}
-    db    = SessionLocal()
-    try:
-        controller = UsuarioController(db)
-        usuario    = controller.atualizar(id, dados)
-        return UsuarioView.resposta_unico(usuario, 200)
-    except ValueError as e:
-        status = 404 if "não encontrado" in str(e) else 400
-        return UsuarioView.resposta_mensagem({"erro": str(e)}, status)
-    finally:
-        db.close()
+    resultado, erro, status = UsuarioController.atualizar(id, dados)
+    if erro:
+        return UsuarioView.resposta_mensagem({"erro": erro}, status)
+    return UsuarioView.resposta_unico(resultado, status)
 
 
 @usuario_bp.route("/<int:id>", methods=["DELETE"])
-@token_obrigatorio
-def deletar_usuario(usuario_id, id): 
-    
-    if usuario_id != id:
-        return jsonify({"erro": "Você não tem permissão para deletar este usuário."}), 403
+def deletar_usuario(id):
+    resultado, erro, status = UsuarioController.deletar(id)
+    if erro:
+        return UsuarioView.resposta_mensagem({"erro": erro}, status)
+    return UsuarioView.resposta_mensagem(resultado, status)
 
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db)
-        resultado  = controller.deletar(id)
-        return UsuarioView.resposta_mensagem(resultado, 200)
-    except ValueError as e:
-        return UsuarioView.resposta_mensagem({"erro": str(e)}, 404)
-    finally:
-        db.close()
 
+# ── SMS / OTP ────────────────────────────────────────────────────────────────
+
+@usuario_bp.route("/sms/enviar", methods=["POST"])
+def sms_enviar():
+    """Envia código OTP via WhatsApp para qualquer número (pré-cadastro)."""
+    dados    = request.get_json() or {}
+    telefone = (dados.get("telefone") or "").strip()
+
+    if not telefone or len(telefone.replace(" ", "")) < 10:
+        return jsonify({"erro": "Telefone inválido"}), 400
+
+    ok, resultado = enviar_otp(telefone)
+    if not ok:
+        return jsonify({"erro": resultado}), 500
+
+    return jsonify({"mensagem": "Código enviado via WhatsApp"}), 200
+
+
+@usuario_bp.route("/sms/verificar", methods=["POST"])
+def sms_verificar():
+    """Verifica o código OTP — usado no fluxo de pré-cadastro."""
+    dados    = request.get_json() or {}
+    telefone = (dados.get("telefone") or "").strip()
+    codigo   = (dados.get("codigo")   or "").strip()
+
+    if not telefone or not codigo:
+        return jsonify({"erro": "Telefone e código são obrigatórios"}), 400
+
+    ok, msg = verificar_otp(telefone, codigo)
+    if not ok:
+        return jsonify({"erro": msg}), 400
+
+    return jsonify({"mensagem": "Celular verificado com sucesso"}), 200
+
+
+# ── Login por OTP ────────────────────────────────────────────────────────────
 
 @usuario_bp.route("/login/solicitar", methods=["POST"])
-def solicitar_codigo_login():
-    dados = request.get_json() or {}
-    identificador = dados.get("identificador", "").strip() 
-    canal = dados.get("canal", "").strip().lower()
+def login_solicitar():
+    """
+    Envia OTP para login de usuário já cadastrado.
+    Body: { identificador: string }  — telefone ou e-mail
+    """
+    dados         = request.get_json() or {}
+    identificador = (dados.get("identificador") or "").strip()
 
     if not identificador:
-        return jsonify({"erro": "Identificador (e-mail ou telefone) é obrigatório."}), 400
+        return jsonify({"erro": "Identificador é obrigatório"}), 400
 
-    if not canal:
-        canal = "email" if "@" in identificador else "sms"
+    usuario = (
+        Usuario.query.filter_by(telefone=identificador).first()
+        or Usuario.query.filter_by(email=identificador).first()
+    )
+    if not usuario:
+        return jsonify({"erro": "Usuário não encontrado"}), 404
 
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(
-            db, 
-            sms_service=servico_otp, 
-            email_service=servico_otp
-        )
-        controller.enviar_codigo(destino=identificador, canal=canal, tipo_fluxo="login")
-        return jsonify({"mensagem": f"Código de login enviado via {canal.upper()}."}), 200
+    if not usuario.telefone:
+        return jsonify({"erro": "Usuário sem telefone cadastrado"}), 400
 
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 400
-    except TwilioRestException:
-        return jsonify({"erro": "Falha ao enviar mensagem pela Twilio. Verifique o contato."}), 400
-    except Exception:
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
+    ok, resultado = enviar_otp(usuario.telefone)
+    if not ok:
+        return jsonify({"erro": resultado}), 500
+
+    return jsonify({"mensagem": "Código enviado via WhatsApp"}), 200
 
 
 @usuario_bp.route("/login", methods=["POST"])
 def login():
-    dados = request.get_json() or {}
-    identificador = dados.get("identificador", "").strip()
-    codigo        = dados.get("codigo", "").strip()
-    canal         = dados.get("canal", "").strip().lower()
+    """
+    Verifica o código OTP e retorna JWT de sessão.
+    Body: { identificador: string, codigo: string }
+    """
+    dados         = request.get_json() or {}
+    identificador = (dados.get("identificador") or "").strip()
+    codigo        = (dados.get("codigo")        or "").strip()
 
     if not identificador or not codigo:
-        return jsonify({"erro": "Identificador e código são obrigatórios."}), 400
+        return jsonify({"erro": "Identificador e código são obrigatórios"}), 400
 
-    if not canal:
-        canal = "email" if "@" in identificador else "sms"
+    usuario = (
+        Usuario.query.filter_by(telefone=identificador).first()
+        or Usuario.query.filter_by(email=identificador).first()
+    )
+    if not usuario:
+        return jsonify({"erro": "Usuário não encontrado"}), 404
 
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(
-            db, 
-            sms_service=servico_otp, 
-            email_service=servico_otp
-        )
+    if not usuario.telefone:
+        return jsonify({"erro": "Usuário sem telefone cadastrado"}), 400
 
-        usuario = controller.autenticar_login(identificador=identificador, codigo=codigo, canal=canal)
-        
-        token = criar_token_jwt(usuario.id)
+    ok, msg = verificar_otp(usuario.telefone, codigo)
+    if not ok:
+        return jsonify({"erro": msg}), 400
 
-        return jsonify({
-            "mensagem": "Login realizado com sucesso!",
-            "access_token": token,
-            "token_type": "Bearer",
-            "usuario": {
-                "id": usuario.id,
-                "email": usuario.email,
-                "telefone": getattr(usuario, "telefone", None)
-            }
-        }), 200
-
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 401
-    except Exception:
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
+    token = criar_token_jwt(usuario.id)
+    return jsonify({
+        "access_token": token,
+        "usuario": {
+            "id":       usuario.id,
+            "nome":     usuario.nome,
+            "email":    usuario.email,
+            "telefone": usuario.telefone,
+        },
+    }), 200
 
 
-@usuario_bp.route('/api/auth/google', methods=['POST'])
-def login_google():
+# ── E-mail / verificação ─────────────────────────────────────────────────────
+
+@usuario_bp.route("/email/enviar", methods=["POST"])
+def email_enviar():
+    """Envia código de verificação por e-mail via SendGrid."""
+    from ..services.email_store import enviar_codigo_email
     dados = request.get_json() or {}
-    token = dados.get("token")
+    email = (dados.get("email") or "").strip().lower()
 
-    if not token:
-        return jsonify({"erro": "Token não fornecido"}), 400
-        
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db)
-        usuario = controller.autenticar_login_google(token)
-        
-        # Geração do token JWT da sua aplicação
-        token_app = criar_token_jwt(usuario.id)
+    if not email:
+        return jsonify({"erro": "E-mail é obrigatório"}), 400
 
-        return jsonify({
-            "mensagem": "Login via Google realizado com sucesso!",
-            "access_token": token_app,
-            "token_type": "Bearer",
-            "usuario": {
-                "id": usuario.id,
-                "nome": usuario.nome,
-                "email": usuario.email,
-                "telefone": getattr(usuario, "telefone", None)
-            }
-        }), 200
+    ok, resultado = enviar_codigo_email(email)
+    if not ok:
+        return jsonify({"erro": resultado}), 500
 
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 401
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
+    return jsonify({"mensagem": "Código enviado por e-mail"}), 200
 
-@usuario_bp.route('/api/auth/facebook', methods=['POST'])
-def login_facebook():
-    dados = request.get_json() or {}
-    token = dados.get("token")
 
-    if not token:
-        return jsonify({"erro": "Token não fornecido"}), 400
-        
-    db = SessionLocal()
-    try:
-        controller = UsuarioController(db)
-        usuario = controller.autenticar_login_facebook(token)
-        
-        # Geração do token JWT da sua aplicação
-        token_app = criar_token_jwt(usuario.id)
+@usuario_bp.route("/email/verificar", methods=["POST"])
+def email_verificar():
+    """Verifica o código de e-mail."""
+    from ..services.email_store import verificar_codigo_email
+    dados  = request.get_json() or {}
+    email  = (dados.get("email")  or "").strip().lower()
+    codigo = (dados.get("codigo") or "").strip()
 
-        return jsonify({
-            "mensagem": "Login via Facebook realizado com sucesso!",
-            "access_token": token_app,
-            "token_type": "Bearer",
-            "usuario": {
-                "id": usuario.id,
-                "nome": usuario.nome,
-                "email": usuario.email,
-                "telefone": getattr(usuario, "telefone", None)
-            }
-        }), 200
+    if not email or not codigo:
+        return jsonify({"erro": "E-mail e código são obrigatórios"}), 400
 
-    except ValueError as e:
-        return jsonify({"erro": str(e)}), 401
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"erro": "Erro interno no servidor."}), 500
-    finally:
-        db.close()
+    ok, msg = verificar_codigo_email(email, codigo)
+    if not ok:
+        return jsonify({"erro": msg}), 400
+
+    return jsonify({"mensagem": "E-mail verificado com sucesso"}), 200
