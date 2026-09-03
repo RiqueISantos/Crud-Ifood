@@ -8,7 +8,7 @@ class UsuarioController:
     @staticmethod
     def criar(dados):
         """Valida e persiste um novo usuário."""
-        campos_obrigatorios = ["nome", "email", "telefone"]
+        campos_obrigatorios = ["nome", "email"]
         for campo in campos_obrigatorios:
             if not dados.get(campo):
                 return None, f"Campo '{campo}' é obrigatório", 400
@@ -19,7 +19,7 @@ class UsuarioController:
         usuario = Usuario(
             nome=dados["nome"],
             email=dados["email"],
-            telefone=dados["telefone"]
+            telefone=dados.get("telefone") or None,
         )
         db.session.add(usuario)
         db.session.commit()

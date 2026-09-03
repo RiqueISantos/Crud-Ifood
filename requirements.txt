@@ -3,3 +3,9 @@ Flask-SQLAlchemy
 psycopg2-binary
 Werkzeug
 Flask-Cors
+python-dotenv
+PyJWT
+authlib
+requests
+twilio
+sendgrid

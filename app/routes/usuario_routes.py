@@ -1,9 +1,14 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, jsonify
 from ..controllers.usuario_controller import UsuarioController
 from ..views.usuario_view import UsuarioView
+from ..models.usuario import Usuario
+from ..services.otp_store import enviar_otp, verificar_otp
+from auth import criar_token_jwt
 
 usuario_bp = Blueprint("usuario", __name__)
 
+
+# ── CRUD base ────────────────────────────────────────────────────────────────
 
 @usuario_bp.route("/", methods=["POST"])
 def criar_usuario():
@@ -37,3 +42,145 @@ def deletar_usuario(id):
     if erro:
         return UsuarioView.resposta_mensagem({"erro": erro}, status)
     return UsuarioView.resposta_mensagem(resultado, status)
+
+
+# ── SMS / OTP ────────────────────────────────────────────────────────────────
+
+@usuario_bp.route("/sms/enviar", methods=["POST"])
+def sms_enviar():
+    """Envia código OTP via WhatsApp para qualquer número (pré-cadastro)."""
+    dados    = request.get_json() or {}
+    telefone = (dados.get("telefone") or "").strip()
+
+    if not telefone or len(telefone.replace(" ", "")) < 10:
+        return jsonify({"erro": "Telefone inválido"}), 400
+
+    ok, resultado = enviar_otp(telefone)
+    if not ok:
+        return jsonify({"erro": resultado}), 500
+
+    return jsonify({"mensagem": "Código enviado via WhatsApp"}), 200
+
+
+@usuario_bp.route("/sms/verificar", methods=["POST"])
+def sms_verificar():
+    """Verifica o código OTP — usado no fluxo de pré-cadastro."""
+    dados    = request.get_json() or {}
+    telefone = (dados.get("telefone") or "").strip()
+    codigo   = (dados.get("codigo")   or "").strip()
+
+    if not telefone or not codigo:
+        return jsonify({"erro": "Telefone e código são obrigatórios"}), 400
+
+    ok, msg = verificar_otp(telefone, codigo)
+    if not ok:
+        return jsonify({"erro": msg}), 400
+
+    return jsonify({"mensagem": "Celular verificado com sucesso"}), 200
+
+
+# ── Login por OTP ────────────────────────────────────────────────────────────
+
+@usuario_bp.route("/login/solicitar", methods=["POST"])
+def login_solicitar():
+    """
+    Envia OTP para login de usuário já cadastrado.
+    Body: { identificador: string }  — telefone ou e-mail
+    """
+    dados         = request.get_json() or {}
+    identificador = (dados.get("identificador") or "").strip()
+
+    if not identificador:
+        return jsonify({"erro": "Identificador é obrigatório"}), 400
+
+    usuario = (
+        Usuario.query.filter_by(telefone=identificador).first()
+        or Usuario.query.filter_by(email=identificador).first()
+    )
+    if not usuario:
+        return jsonify({"erro": "Usuário não encontrado"}), 404
+
+    if not usuario.telefone:
+        return jsonify({"erro": "Usuário sem telefone cadastrado"}), 400
+
+    ok, resultado = enviar_otp(usuario.telefone)
+    if not ok:
+        return jsonify({"erro": resultado}), 500
+
+    return jsonify({"mensagem": "Código enviado via WhatsApp"}), 200
+
+
+@usuario_bp.route("/login", methods=["POST"])
+def login():
+    """
+    Verifica o código OTP e retorna JWT de sessão.
+    Body: { identificador: string, codigo: string }
+    """
+    dados         = request.get_json() or {}
+    identificador = (dados.get("identificador") or "").strip()
+    codigo        = (dados.get("codigo")        or "").strip()
+
+    if not identificador or not codigo:
+        return jsonify({"erro": "Identificador e código são obrigatórios"}), 400
+
+    usuario = (
+        Usuario.query.filter_by(telefone=identificador).first()
+        or Usuario.query.filter_by(email=identificador).first()
+    )
+    if not usuario:
+        return jsonify({"erro": "Usuário não encontrado"}), 404
+
+    if not usuario.telefone:
+        return jsonify({"erro": "Usuário sem telefone cadastrado"}), 400
+
+    ok, msg = verificar_otp(usuario.telefone, codigo)
+    if not ok:
+        return jsonify({"erro": msg}), 400
+
+    token = criar_token_jwt(usuario.id)
+    return jsonify({
+        "access_token": token,
+        "usuario": {
+            "id":       usuario.id,
+            "nome":     usuario.nome,
+            "email":    usuario.email,
+            "telefone": usuario.telefone,
+        },
+    }), 200
+
+
+# ── E-mail / verificação ─────────────────────────────────────────────────────
+
+@usuario_bp.route("/email/enviar", methods=["POST"])
+def email_enviar():
+    """Envia código de verificação por e-mail via SendGrid."""
+    from ..services.email_store import enviar_codigo_email
+    dados = request.get_json() or {}
+    email = (dados.get("email") or "").strip().lower()
+
+    if not email:
+        return jsonify({"erro": "E-mail é obrigatório"}), 400
+
+    ok, resultado = enviar_codigo_email(email)
+    if not ok:
+        return jsonify({"erro": resultado}), 500
+
+    return jsonify({"mensagem": "Código enviado por e-mail"}), 200
+
+
+@usuario_bp.route("/email/verificar", methods=["POST"])
+def email_verificar():
+    """Verifica o código de e-mail."""
+    from ..services.email_store import verificar_codigo_email
+    dados  = request.get_json() or {}
+    email  = (dados.get("email")  or "").strip().lower()
+    codigo = (dados.get("codigo") or "").strip()
+
+    if not email or not codigo:
+        return jsonify({"erro": "E-mail e código são obrigatórios"}), 400
+
+    ok, msg = verificar_codigo_email(email, codigo)
+    if not ok:
+        return jsonify({"erro": msg}), 400
+
+    return jsonify({"mensagem": "E-mail verificado com sucesso"}), 200
