@@ -10,9 +10,9 @@ from authlib.integrations.requests_client import OAuth2Session
 from dotenv import load_dotenv
 
 from app.database import db
-from app.models.usuario import Usuario
-from app.services.otp_store import enviar_otp, verificar_otp
-from auth import criar_token_jwt
+from app.models.models import Usuario
+from services.otp_store import enviar_otp, verificar_otp
+from services.auth import criar_token_jwt
 
 load_dotenv()
 

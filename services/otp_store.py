@@ -10,10 +10,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Caminho absoluto do .env — funciona independente de onde o processo sobe
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
-# Store thread-safe: { telefone: { "codigo": str, "expira": float } }
 _store: dict = {}
 _lock = threading.Lock()
 
@@ -28,7 +26,7 @@ def _to_whatsapp(telefone: str) -> str:
 
 def enviar_otp(telefone: str) -> tuple:
     """Gera, armazena e envia OTP via Twilio WhatsApp."""
-    # Lê credenciais em tempo de execução (não no import)
+    
     account_sid  = os.getenv("TWILIO_ACCOUNT_SID")
     auth_token   = os.getenv("TWILIO_AUTH_TOKEN")
     template_sid = os.getenv("TWILIO_TEMPLATE_SID")

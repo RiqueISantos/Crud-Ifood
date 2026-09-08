@@ -1,9 +1,9 @@
 from flask import Blueprint, request, jsonify
 from ..controllers.usuario_controller import UsuarioController
 from ..views.usuario_view import UsuarioView
-from ..models.usuario import Usuario
-from ..services.otp_store import enviar_otp, verificar_otp
-from auth import criar_token_jwt
+from ..models.models import Usuario
+from services.otp_store import enviar_otp, verificar_otp
+from services.auth import criar_token_jwt
 
 usuario_bp = Blueprint("usuario", __name__)
 
@@ -50,7 +50,7 @@ def deletar_usuario(id):
 def sms_enviar():
     """Envia código OTP via WhatsApp para qualquer número (pré-cadastro)."""
     dados    = request.get_json() or {}
-    telefone = (dados.get("telefone") or "").strip()
+    telefone = (dados.get(" ") or "").strip()
 
     if not telefone or len(telefone.replace(" ", "")) < 10:
         return jsonify({"erro": "Telefone inválido"}), 400
@@ -151,7 +151,7 @@ def login():
 
 # ── E-mail / verificação ─────────────────────────────────────────────────────
 
-@usuario_bp.route("/email/enviar", methods=["POST"])
+@usuario_bp.route("/        ", methods=["POST"])
 def email_enviar():
     """Envia código de verificação por e-mail via SendGrid."""
     from ..services.email_store import enviar_codigo_email

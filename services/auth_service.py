@@ -100,7 +100,7 @@ class OtpService:
         destino = self._normalizar_destino(destino_bruto, canal)
         codigo = f"{secrets.randbelow(1_000_000):06d}"
 
-        db.query(CodigoVerificacao).filter(
+        db.session.query(CodigoVerificacao).filter(
             CodigoVerificacao.destino == destino,
             CodigoVerificacao.canal == canal
         ).delete(synchronize_session=False)
@@ -113,10 +113,9 @@ class OtpService:
             verificado=False,
             verificado_expira_em=None
         )
-        db.add(registro)
-        db.commit()
+        db.session.add(registro)
+        db.session.commit()
 
-        # Dispara mensagem externa
         self._disparar_externo(destino, codigo, canal)
         return codigo
 
@@ -124,7 +123,7 @@ class OtpService:
         destino = self._normalizar_destino(destino_bruto, canal)
 
         registro = (
-            db.query(CodigoVerificacao)
+            db.session.query(CodigoVerificacao)
             .filter(
                 CodigoVerificacao.destino == destino,
                 CodigoVerificacao.canal == canal,
@@ -138,8 +137,8 @@ class OtpService:
             return False
 
         if time.time() > registro.expira_em:
-            db.delete(registro)
-            db.commit()
+            db.session.delete(registro)
+            db.session.commit()
             return False
 
         if not secrets.compare_digest(registro.codigo, str(codigo).strip()):
@@ -147,14 +146,14 @@ class OtpService:
 
         registro.verificado = True
         registro.verificado_expira_em = time.time() + VERIFICACAO_TTL_SEGUNDOS
-        db.commit()
+        db.session.commit()
         return True
 
     def esta_verificado(self, destino_bruto: str, canal: str, db) -> bool:
         destino = self._normalizar_destino(destino_bruto, canal)
 
         registro = (
-            db.query(CodigoVerificacao)
+            db.session.query(CodigoVerificacao)
             .filter(
                 CodigoVerificacao.destino == destino,
                 CodigoVerificacao.canal == canal,
@@ -168,16 +167,16 @@ class OtpService:
             return False
 
         if time.time() > registro.verificado_expira_em:
-            db.delete(registro)
-            db.commit()
+            db.session.delete(registro)
+            db.session.commit()
             return False
 
         return True
 
     def invalidar_verificacao(self, destino_bruto: str, canal: str, db) -> None:
         destino = self._normalizar_destino(destino_bruto, canal)
-        db.query(CodigoVerificacao).filter(
+        db.session.query(CodigoVerificacao).filter(
             CodigoVerificacao.destino == destino,
             CodigoVerificacao.canal == canal
         ).delete(synchronize_session=False)
-        db.commit()
+        db.session.commit()
