@@ -16,7 +16,17 @@ def criar_usuario():
     resultado, erro, status = UsuarioController.criar(dados)
     if erro:
         return UsuarioView.resposta_mensagem({"erro": erro}, status)
-    return UsuarioView.resposta_unico(resultado, status)
+    # Retorna o usuário criado + JWT para já logar direto
+    token = criar_token_jwt(resultado.id)
+    return jsonify({
+        "access_token": token,
+        "usuario": {
+            "id":       resultado.id,
+            "nome":     resultado.nome,
+            "email":    resultado.email,
+            "telefone": resultado.telefone,
+        },
+    }), status
 
 
 @usuario_bp.route("/<int:id>", methods=["GET"])
@@ -48,9 +58,8 @@ def deletar_usuario(id):
 
 @usuario_bp.route("/sms/enviar", methods=["POST"])
 def sms_enviar():
-    """Envia código OTP via WhatsApp para qualquer número (pré-cadastro)."""
     dados    = request.get_json() or {}
-    telefone = (dados.get(" ") or "").strip()
+    telefone = (dados.get("telefone") or "").strip()
 
     if not telefone or len(telefone.replace(" ", "")) < 10:
         return jsonify({"erro": "Telefone inválido"}), 400
@@ -64,7 +73,6 @@ def sms_enviar():
 
 @usuario_bp.route("/sms/verificar", methods=["POST"])
 def sms_verificar():
-    """Verifica o código OTP — usado no fluxo de pré-cadastro."""
     dados    = request.get_json() or {}
     telefone = (dados.get("telefone") or "").strip()
     codigo   = (dados.get("codigo")   or "").strip()
@@ -83,10 +91,6 @@ def sms_verificar():
 
 @usuario_bp.route("/login/solicitar", methods=["POST"])
 def login_solicitar():
-    """
-    Envia OTP para login de usuário já cadastrado.
-    Body: { identificador: string }  — telefone ou e-mail
-    """
     dados         = request.get_json() or {}
     identificador = (dados.get("identificador") or "").strip()
 
@@ -112,10 +116,6 @@ def login_solicitar():
 
 @usuario_bp.route("/login", methods=["POST"])
 def login():
-    """
-    Verifica o código OTP e retorna JWT de sessão.
-    Body: { identificador: string, codigo: string }
-    """
     dados         = request.get_json() or {}
     identificador = (dados.get("identificador") or "").strip()
     codigo        = (dados.get("codigo")        or "").strip()
@@ -151,10 +151,9 @@ def login():
 
 # ── E-mail / verificação ─────────────────────────────────────────────────────
 
-@usuario_bp.route("/        ", methods=["POST"])
+@usuario_bp.route("/email/enviar", methods=["POST"])
 def email_enviar():
-    """Envia código de verificação por e-mail via SendGrid."""
-    from ..services.email_store import enviar_codigo_email
+    from services.email_store import enviar_codigo_email
     dados = request.get_json() or {}
     email = (dados.get("email") or "").strip().lower()
 
@@ -170,8 +169,7 @@ def email_enviar():
 
 @usuario_bp.route("/email/verificar", methods=["POST"])
 def email_verificar():
-    """Verifica o código de e-mail."""
-    from ..services.email_store import verificar_codigo_email
+    from services.email_store import verificar_codigo_email
     dados  = request.get_json() or {}
     email  = (dados.get("email")  or "").strip().lower()
     codigo = (dados.get("codigo") or "").strip()
