@@ -183,11 +183,6 @@ def google_confirmar():
 
 @oauth_bp.route("/auth/facebook", methods=["POST"])
 def facebook_login():
-    """
-    Recebe o access_token do Facebook (gerado pelo SDK no frontend),
-    valida na Graph API, busca/cria o usuário e retorna JWT.
-    Body: { token: string }
-    """
     import requests as req
 
     dados = request.get_json() or {}
@@ -197,7 +192,6 @@ def facebook_login():
         return jsonify({"erro": "Token do Facebook não fornecido"}), 400
 
     try:
-        # Valida o token na Graph API do Facebook
         url = f"https://graph.facebook.com/me?access_token={token}&fields=id,name,email"
         resposta = req.get(url, timeout=10)
         dados_fb = resposta.json()
@@ -205,13 +199,14 @@ def facebook_login():
         if "error" in dados_fb:
             return jsonify({"erro": "Token do Facebook inválido ou expirado"}), 401
 
+        fb_id = dados_fb.get("id")
+        nome = dados_fb.get("name") or "Usuário Facebook"
         email = (dados_fb.get("email") or "").lower().strip()
-        nome  = dados_fb.get("name", "")
 
+        # Se a conta do Facebook não tiver e-mail, cria um identificador único
         if not email:
-            return jsonify({"erro": "O perfil do Facebook não compartilhou um e-mail válido"}), 400
+            email = f"fb_{fb_id}@facebook.local"
 
-        # Busca ou cria o usuário
         usuario = Usuario.query.filter_by(email=email).first()
         if not usuario:
             usuario = Usuario(nome=nome, email=email)
@@ -222,10 +217,10 @@ def facebook_login():
         return jsonify({
             "access_token": jwt_token,
             "usuario": {
-                "id":       usuario.id,
-                "nome":     usuario.nome,
-                "email":    usuario.email,
-                "telefone": usuario.telefone,
+                "id": usuario.id,
+                "nome": usuario.nome,
+                "email": usuario.email,
+                "telefone": usuario.telefone or "",
             },
         }), 200
 
