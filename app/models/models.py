@@ -51,4 +51,26 @@ class Endereco(Base):
 
     usuario_id = Column(BigInteger, ForeignKey("usuarios.id"), nullable=True, index=True)
     
-    parceiro_id = Column(BigInteger, ForeignKey("usuarios.id"), nullable=True, index=True)
+
+
+
+class Restaurante(Base):
+    __tablename__ = 'restaurante'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    nome = Column(String(50), nullable=False)
+    email = Column(String(254), unique=True, nullable=False, index=True)
+    telefone = Column(String(20), nullable=False, index=True)
+    categoria_principal = Column(String(50), nullable=False)
+    taxa_entrega = Column(Float, nullable=True)
+    tempo_estimado = Column(String(20), nullable=True)
+    logradouro = Column(String(254), nullable=False)
+    numero = Column(String(10), nullable=False)
+    complemento = Column(String(100), nullable=True)
+    bairro = Column(String(50), nullable=False)
+    cidade = Column(String(50), nullable=False)
+    uf = Column(String(2), nullable=False)
+    cep = Column(String(10), nullable=False)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    criado_em = Column(DateTime, server_default=func.now())

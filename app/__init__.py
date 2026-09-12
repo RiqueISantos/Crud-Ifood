@@ -27,9 +27,11 @@ def create_app():
 
     from .routes.oauth_routes import oauth_bp
     from .routes.endereco_routes import endereco_bp
+    from .routes.restaurante_routes import restaurante_bp
 
     app.register_blueprint(usuario_bp, url_prefix="/usuarios")
     app.register_blueprint(oauth_bp)
     app.register_blueprint(endereco_bp, url_prefix="/enderecos")
+    app.register_blueprint(restaurante_bp, url_prefix="/restaurantes")
 
     return app

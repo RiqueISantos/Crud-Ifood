@@ -5,8 +5,10 @@ Usado pelo oauth_routes e pelo fluxo de login OTP.
 """
 import os
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 
 import jwt
+from flask import request, jsonify
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,3 +34,32 @@ def verificar_token_jwt(token: str) -> dict:
     Lança jwt.ExpiredSignatureError ou jwt.InvalidTokenError em caso de falha.
     """
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+
+def jwt_required(f):
+    """
+    Decorator que protege uma rota exigindo um JWT válido no header:
+        Authorization: Bearer <token>
+
+    Em caso de sucesso, injeta `usuario_id` (int) como kwarg na função decorada.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"erro": "Token de autenticação não fornecido"}), 401
+
+        token = auth_header.split(" ", 1)[1].strip()
+
+        try:
+            payload = verificar_token_jwt(token)
+            usuario_id = int(payload["sub"])
+        except jwt.ExpiredSignatureError:
+            return jsonify({"erro": "Token expirado. Faça login novamente"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"erro": "Token inválido"}), 401
+
+        return f(*args, usuario_id=usuario_id, **kwargs)
+
+    return decorated
