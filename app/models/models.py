@@ -132,3 +132,54 @@ class Produto(Base):
         back_populates="produtos",
         lazy="selectin",
     )
+
+class Sacola(Base):
+    __tablename__ = "sacola"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    usuario_id = Column(
+        BigInteger,
+        ForeignKey("usuarios.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    restaurante_id = Column(
+        BigInteger,
+        ForeignKey("restaurante.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    criado_em = Column(DateTime, server_default=func.now(), nullable=False)
+
+    usuario = relationship("Usuario", backref="sacola")
+    restaurante = relationship("Restaurante")
+    itens = relationship(
+        "ItemSacola",
+        back_populates="sacola",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class ItemSacola(Base):
+    __tablename__ = "item_sacola"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sacola_id = Column(
+        BigInteger,
+        ForeignKey("sacola.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    produto_id = Column(
+        BigInteger,
+        ForeignKey("produto.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    quantidade = Column(BigInteger, default=1, nullable=False)
+    observacao = Column(String(255), nullable=True)
+
+    sacola = relationship("Sacola", back_populates="itens")
+    produto = relationship("Produto", lazy="selectin")
