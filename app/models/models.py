@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, BigInteger, String, DateTime, Boolean, Float, Index, ForeignKey, Table
+from sqlalchemy import Column, BigInteger, String, DateTime, Boolean, Float, Index, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -78,36 +78,6 @@ class Restaurante(Base):
 
     produtos = relationship("Produto", back_populates="restaurante", cascade="all, delete-orphan")
 
-#Tabela associativa (produto_ingrediente)
-produto_ingrediente = Table(
-    "produto_ingrediente",
-    Base.metadata,
-    Column(
-        "produto_id",
-        BigInteger,
-        ForeignKey("produto.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-    Column(
-        "ingrediente_id",
-        BigInteger,
-        ForeignKey("ingrediente.id", ondelete="RESTRICT"),
-        primary_key=True,
-    ),
-)
-
-class Ingrediente(Base):
-    __tablename__ = "ingrediente"
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    nome = Column(String(60), nullable=False, unique=True, index=True)
-
-    produtos = relationship(
-        "Produto",
-        secondary=produto_ingrediente,
-        back_populates="ingredientes",
-    )
-
 class Produto(Base):
     __tablename__ = "produto"
 
@@ -126,12 +96,6 @@ class Produto(Base):
 
     restaurante = relationship("Restaurante", back_populates="produtos")
 
-    ingredientes = relationship(
-        "Ingrediente",
-        secondary=produto_ingrediente,
-        back_populates="produtos",
-        lazy="selectin",
-    )
 
 class Sacola(Base):
     __tablename__ = "sacola"

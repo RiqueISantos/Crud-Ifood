@@ -1,17 +1,12 @@
-from flask import Blueprint, request, jsonify
-from ..controllers.produto_controller import ProdutoController
-from ..controllers.ingrediente_controller import IngredienteController
+from flask import Blueprint, jsonify, request
 from services.auth import jwt_required
+from ..controllers.produto_controller import ProdutoController
 
 produto_bp = Blueprint("produtos", __name__, url_prefix="/produtos")
 
-def serializar_ingrediente(ingrediente):
-    return {
-        "id": ingrediente.id,
-        "nome": ingrediente.nome,
-    }
 
 def serializar_produto(produto):
+    """Converte o modelo Produto em dicionário JSON."""
     return {
         "id": produto.id,
         "restaurante_id": produto.restaurante_id,
@@ -20,19 +15,8 @@ def serializar_produto(produto):
         "preco": produto.preco,
         "disponivel": produto.disponivel,
         "criado_em": produto.criado_em.isoformat() if produto.criado_em else None,
-        "ingredientes": [
-            serializar_ingrediente(i) for i in (produto.ingredientes or [])
-        ],
     }
 
-@produto_bp.route("/ingredientes/autocomplete", methods=["GET"])
-def autocomplete_ingredientes():
-    """Retorna sugestões de ingredientes existentes para o autocomplete."""
-    q = request.args.get("q", "")
-    resultado, erro, status = IngredienteController.autocomplete(q)
-    if erro:
-        return jsonify({"erro": erro}), status
-    return jsonify([serializar_ingrediente(i) for i in resultado]), status
 
 @produto_bp.route("/restaurante/<int:restaurante_id>", methods=["GET"])
 def listar_por_restaurante(restaurante_id):
@@ -42,11 +26,12 @@ def listar_por_restaurante(restaurante_id):
         return jsonify({"erro": erro}), status
     return jsonify([serializar_produto(p) for p in resultado]), status
 
-@produto_bp.route("/", methods=["POST"]) 
+
+@produto_bp.route("/", methods=["POST"])
 @jwt_required
 def criar_produto(usuario_id):
+    """Cadastra um novo produto vinculado ao restaurante autenticado."""
     dados = request.get_json() or {}
-    
     dados["restaurante_id"] = usuario_id
 
     produto, erro, status = ProdutoController.criar(dados)
@@ -55,17 +40,19 @@ def criar_produto(usuario_id):
 
     return jsonify(serializar_produto(produto)), status
 
+
 @produto_bp.route("/busca", methods=["GET"])
 def buscar_produtos():
+    """Busca produtos no catálogo exclusivamente pelo nome."""
     filtros = {
         "q": request.args.get("q"),
-        "exclude": request.args.get("exclude"),
         "restaurante_id": request.args.get("restaurante_id", type=int),
     }
     produtos, erro, status = ProdutoController.buscar(filtros)
     if erro:
         return jsonify({"erro": erro}), status
     return jsonify([serializar_produto(p) for p in produtos]), status
+
 
 @produto_bp.route("/<int:id>", methods=["PUT"])
 @jwt_required
@@ -83,6 +70,7 @@ def atualizar_produto(id, usuario_id):
     if erro:
         return jsonify({"erro": erro}), status
     return jsonify(serializar_produto(resultado)), status
+
 
 @produto_bp.route("/<int:id>", methods=["DELETE"])
 @jwt_required

@@ -1,34 +1,13 @@
-from sqlalchemy import not_, select
+from sqlalchemy import and_
 from ..database import db
-from ..models.models import Produto, Ingrediente, Restaurante, produto_ingrediente
-
+from ..models.models import Produto, Restaurante
 
 
 class ProdutoController:
 
     @staticmethod
-    def _processar_ingredientes(nomes_ingredientes):
-        """Busca ingredientes existentes no catálogo ou cria novos se não existirem."""
-        ingredientes_obj = []
-        for nome_cru in nomes_ingredientes:
-            if not isinstance(nome_cru, str):
-                continue
-            nome_formatado = nome_cru.strip().title()
-            if not nome_formatado:
-                continue
-
-            ingrediente = Ingrediente.query.filter_by(nome=nome_formatado).first()
-            if not ingrediente:
-                ingrediente = Ingrediente(nome=nome_formatado)
-                db.session.add(ingrediente)
-                db.session.flush() 
-
-            ingredientes_obj.append(ingrediente)
-        return ingredientes_obj
-
-    @staticmethod
     def criar(dados):
-        """Valida e persiste um novo produto com seus ingredientes."""
+        """Valida e persiste um novo produto."""
         campos_obrigatorios = ["restaurante_id", "nome", "descricao", "preco"]
         for campo in campos_obrigatorios:
             if dados.get(campo) is None or dados.get(campo) == "":
@@ -45,16 +24,12 @@ class ProdutoController:
         if not restaurante:
             return None, "Restaurante não encontrado", 404
 
-        lista_nomes = dados.get("ingredientes") or []
-        ingredientes_associados = ProdutoController._processar_ingredientes(lista_nomes)
-
         produto = Produto(
             restaurante_id=dados["restaurante_id"],
             nome=dados["nome"].strip(),
             descricao=dados["descricao"].strip(),
             preco=preco,
             disponivel=dados.get("disponivel", True),
-            ingredientes=ingredientes_associados,
         )
 
         db.session.add(produto)
@@ -63,7 +38,7 @@ class ProdutoController:
 
     @staticmethod
     def buscar_por_id(id):
-        """Busca um produto pelo id."""
+        """Busca um produto pelo ID."""
         produto = db.session.get(Produto, id)
         if not produto:
             return None, "Produto não encontrado", 404
@@ -72,60 +47,30 @@ class ProdutoController:
     @staticmethod
     def buscar(filtros):
         """
-        Busca e filtra produtos no catálogo.
+        Busca e filtra produtos no catálogo exclusivamente pelo nome.
         filtros aceitos:
-          - q: busca no nome do produto ou nome do ingrediente
-          - restaurante_id: filtra por restaurante
-          - exclude: ingredientes para excluir separados por vírgula (ex: 'cebola,alho')
+          - q: busca textual no nome do produto (case-insensitive)
+          - restaurante_id: filtra produtos de uma loja específica
         """
-        from sqlalchemy import or_, not_
-
         query = Produto.query.filter(Produto.disponivel.is_(True))
 
         if filtros.get("restaurante_id"):
             query = query.filter(Produto.restaurante_id == filtros["restaurante_id"])
-
-        exclude_param = filtros.get("exclude")
-        if exclude_param:
-            termos_excluir = [item.strip() for item in exclude_param.split(",") if item.strip()]
-            if termos_excluir:
-                condicoes_exclusao = [
-                    Ingrediente.nome.ilike(f"%{termo}%") for termo in termos_excluir
-                ]
-                
-                produtos_indesejados = (
-                    db.session.query(produto_ingrediente.c.produto_id)
-                    .join(Ingrediente, produto_ingrediente.c.ingrediente_id == Ingrediente.id)
-                    .filter(or_(*condicoes_exclusao))
-                    .subquery()
-                )
-
-                query = query.filter(not_(Produto.id.in_(produtos_indesejados)))
 
         termo = filtros.get("q")
         if termo and termo.strip():
             palavras = [p.strip() for p in termo.strip().split() if p.strip()]
 
             if palavras:
-                from sqlalchemy import and_, or_
+                condicoes_nome = [Produto.nome.ilike(f"%{palavra}%") for palavra in palavras]
+                query = query.filter(and_(*condicoes_nome))
 
-                condicoes_palavras = []
-                for palavra in palavras:
-                    p_like = f"%{palavra}%"
-                    condicoes_palavras.append(
-                        or_(
-                            Produto.nome.ilike(p_like),
-                            Ingrediente.nome.ilike(p_like)
-                        )
-                    )
-
-                query = query.join(Produto.ingredientes).filter(and_(*condicoes_palavras))
-
-        produtos = query.distinct().all()
+        produtos = query.order_by(Produto.nome.asc()).all()
         return produtos, None, 200
+
     @staticmethod
     def atualizar(id, dados):
-        """Atualiza dados do produto e opcionalmente recalcula os ingredientes."""
+        """Atualiza dados cadastrais do produto."""
         produto = db.session.get(Produto, id)
         if not produto:
             return None, "Produto não encontrado", 404
@@ -150,9 +95,6 @@ class ProdutoController:
 
         if "disponivel" in dados:
             produto.disponivel = bool(dados["disponivel"])
-
-        if "ingredientes" in dados:
-            produto.ingredientes = ProdutoController._processar_ingredientes(dados["ingredientes"])
 
         db.session.commit()
         return produto, None, 200
