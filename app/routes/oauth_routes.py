@@ -227,3 +227,50 @@ def facebook_login():
     except Exception as e:
         print(f"[Facebook OAuth] Erro: {e}")
         return jsonify({"erro": "Falha na autenticação com Facebook"}), 500
+
+
+# ── Rota exclusiva de desenvolvimento ────────────────────────────────────────
+# Permite logar sem validar o código OTP — só funciona com DEBUG=True no Flask.
+
+@oauth_bp.route("/auth/google/dev-bypass", methods=["POST"])
+def google_dev_bypass():
+    """
+    Bypassa a verificação do OTP em desenvolvimento.
+    Recebe o temp_token, valida a sessão e retorna um JWT sem exigir o código.
+    """
+    from flask import current_app
+    if not current_app.debug:
+        return jsonify({"erro": "Rota disponível apenas em modo de desenvolvimento."}), 403
+
+    dados      = request.get_json() or {}
+    temp_token = dados.get("temp_token", "")
+    telefone   = (dados.get("telefone") or "").strip()
+
+    usuario_id = _validar_temp_token(temp_token)
+    if not usuario_id:
+        return jsonify({"erro": "Sessão expirada. Faça login com o Google novamente."}), 401
+
+    usuario = db.session.get(Usuario, usuario_id)
+    if not usuario:
+        return jsonify({"erro": "Usuário não encontrado."}), 404
+
+    # Se vier telefone e o usuário ainda não tem, associa sem verificar OTP
+    if telefone and not usuario.telefone:
+        outro = Usuario.query.filter_by(telefone=telefone).first()
+        if outro and outro.id != usuario_id:
+            return jsonify({
+                "erro": "Este número já está cadastrado em outra conta."
+            }), 409
+        usuario.telefone = telefone
+        db.session.commit()
+
+    jwt_token = criar_token_jwt(usuario.id)
+    return jsonify({
+        "access_token": jwt_token,
+        "usuario": {
+            "id":       usuario.id,
+            "nome":     usuario.nome,
+            "email":    usuario.email,
+            "telefone": usuario.telefone,
+        },
+    }), 200

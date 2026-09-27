@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from services.auth import jwt_required
 from ..controllers.produto_controller import ProdutoController
 
-produto_bp = Blueprint("produtos", __name__, url_prefix="/produtos")
+produto_bp = Blueprint("produtos", __name__)
 
 
 def serializar_produto(produto):

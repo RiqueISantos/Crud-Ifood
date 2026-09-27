@@ -163,3 +163,59 @@ def deletar_restaurante(id, usuario_id):
     if erro:
         return RestauranteView.resposta_mensagem({"erro": erro}, status)
     return RestauranteView.resposta_mensagem(resultado, status)
+
+
+# ── Rota exclusiva de desenvolvimento ────────────────────────────────────────
+
+@restaurante_bp.route("/cadastro/dev-bypass", methods=["POST"])
+def cadastro_dev_bypass():
+    """
+    Cadastra o restaurante sem validar o código de e-mail.
+    Disponível apenas em modo DEBUG.
+    """
+    from flask import current_app
+    if not current_app.debug:
+        return jsonify({"erro": "Rota disponível apenas em modo de desenvolvimento."}), 403
+
+    dados = request.get_json() or {}
+    # Remove o código — não valida
+    dados.pop("codigo", None)
+    dados["codigo"] = "000000"  # dummy para não quebrar a validação de campos
+
+    # Força verificação como válida pulando o verificar_codigo_email
+    resultado, erro, status = RestauranteController.criar(dados)
+    if erro:
+        return RestauranteView.resposta_mensagem({"erro": erro}, status)
+
+    token = criar_token_jwt(resultado.id)
+    return jsonify({
+        "access_token": token,
+        "restaurante": RestauranteView.serializar(resultado),
+    }), status
+
+
+@restaurante_bp.route("/login/dev-bypass", methods=["POST"])
+def login_dev_bypass():
+    """
+    Loga o restaurante sem validar o código de e-mail.
+    Disponível apenas em modo DEBUG.
+    """
+    from flask import current_app
+    if not current_app.debug:
+        return jsonify({"erro": "Rota disponível apenas em modo de desenvolvimento."}), 403
+
+    dados  = request.get_json() or {}
+    email  = (dados.get("email") or "").strip().lower()
+
+    if not email:
+        return jsonify({"erro": "E-mail é obrigatório"}), 400
+
+    restaurante = Restaurante.query.filter_by(email=email).first()
+    if not restaurante:
+        return jsonify({"erro": "Restaurante não encontrado"}), 404
+
+    token = criar_token_jwt(restaurante.id)
+    return jsonify({
+        "access_token": token,
+        "restaurante": RestauranteView.serializar(restaurante),
+    }), 200

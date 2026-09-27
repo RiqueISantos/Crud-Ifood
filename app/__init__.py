@@ -22,20 +22,17 @@ def create_app():
     Migrate(app, db)
     CORS(app, origins=["http://localhost:5173", "http://localhost:5174"])
 
-    # As tabelas são gerenciadas pelo Flask-Migrate (flask db upgrade)
-    # Não usar db.create_all() aqui para evitar conflitos com migrations
-
     from .routes.oauth_routes import oauth_bp
     from .routes.endereco_routes import endereco_bp
     from .routes.restaurante_routes import restaurante_bp
     from .routes.produto_routes import produto_bp
     from .routes.sacola_routes import sacola_bp
-    
+
     app.register_blueprint(usuario_bp, url_prefix="/usuarios")
     app.register_blueprint(oauth_bp)
     app.register_blueprint(endereco_bp, url_prefix="/enderecos")
     app.register_blueprint(restaurante_bp, url_prefix="/restaurantes")
-    app.register_blueprint(produto_bp,url_prefix="/produtos")
-    app.register_blueprint(sacola_bp,url_prefix="/sacola")
+    app.register_blueprint(produto_bp, url_prefix="/produtos")
+    app.register_blueprint(sacola_bp, url_prefix="/sacola")
 
     return app
