@@ -1,6 +1,6 @@
 from werkzeug.security import generate_password_hash
 from ..database import db
-from ..models.usuario import Usuario
+from ..models.models import Usuario, Endereco
 
 
 class UsuarioController:
@@ -34,29 +34,24 @@ class UsuarioController:
         return usuario, None, 200
 
     @staticmethod
-    def atualizar(id, dados):
-        """Atualiza os dados de um usuário existente."""
-        usuario = db.session.get(Usuario, id)
+    def atualizar(usuario_id, dados):
+        usuario = db.session.get(Usuario, usuario_id)
         if not usuario:
-            return None, "Usuário não encontrado", 404
+            return None, "Utilizador não encontrado", 404
 
-        if not dados:
-            return None, "Dados não fornecidos", 400
-
-        if dados.get("nome"):
+        if "nome" in dados:
             usuario.nome = dados["nome"]
-
-        if dados.get("email"):
-            existente = Usuario.query.filter_by(email=dados["email"]).first()
-            if existente and existente.id != id:
-                return None, "E-mail já cadastrado por outro usuário", 409
-            usuario.email = dados["email"]
-
-        if dados.get("telefone"):
+        if "telefone" in dados:
             usuario.telefone = dados["telefone"]
+        if "documento" in dados:
+            usuario.documento = dados["documento"]
 
-        db.session.commit()
-        return usuario, None, 200
+        try:
+            db.session.commit()
+            return usuario, None, 200
+        except Exception as e:
+            db.session.rollback()
+            return None, f"Erro ao atualizar utilizador: {str(e)}", 500
 
     @staticmethod
     def deletar(id):

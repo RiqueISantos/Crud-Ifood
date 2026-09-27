@@ -10,9 +10,9 @@ from authlib.integrations.requests_client import OAuth2Session
 from dotenv import load_dotenv
 
 from app.database import db
-from app.models.usuario import Usuario
-from app.services.otp_store import enviar_otp, verificar_otp
-from auth import criar_token_jwt
+from app.models.models import Usuario
+from services.otp_store import enviar_otp, verificar_otp
+from services.auth import criar_token_jwt
 
 load_dotenv()
 
@@ -21,7 +21,7 @@ oauth_bp = Blueprint("oauth", __name__)
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5000/auth/google/callback")
-FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5174")
+FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
 SECRET_KEY           = os.getenv("SECRET_KEY", "ifood_secret_jwt_2026")
 
 GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -29,10 +29,10 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO  = "https://www.googleapis.com/oauth2/v3/userinfo"
 SCOPES           = "openid email profile"
 
-OAUTH_TEMP_TTL = 600  # segundos de validade do token temporário
+OAUTH_TEMP_TTL = 600
 
 
-# ── Token temporário (HMAC — sem dep extra) ──────────────────────────────────
+# ── Token temporário (HMAC) ───────────────────────────────────────────────────
 
 def _gerar_temp_token(usuario_id: int) -> str:
     ts      = int(time.time())
@@ -42,7 +42,6 @@ def _gerar_temp_token(usuario_id: int) -> str:
 
 
 def _validar_temp_token(token: str):
-    """Retorna usuario_id (int) ou None se inválido/expirado."""
     try:
         parts = token.split(".")
         if len(parts) != 3:
@@ -59,11 +58,10 @@ def _validar_temp_token(token: str):
         return None
 
 
-# ── Rotas ────────────────────────────────────────────────────────────────────
+# ── Rotas ─────────────────────────────────────────────────────────────────────
 
 @oauth_bp.route("/auth/google")
 def google_login():
-    """Redireciona para a tela de login do Google."""
     client = OAuth2Session(
         client_id=GOOGLE_CLIENT_ID,
         redirect_uri=GOOGLE_REDIRECT_URI,
@@ -75,11 +73,6 @@ def google_login():
 
 @oauth_bp.route("/auth/google/callback")
 def google_callback():
-    """
-    Recebe o code do Google, busca/cria o usuário e redireciona para o
-    frontend com um token TEMPORÁRIO.
-    O JWT definitivo só é emitido após confirmação do celular.
-    """
     code = request.args.get("code")
     if not code:
         return redirect(f"{FRONTEND_URL}/#/auth?erro=oauth_cancelado")
@@ -100,7 +93,6 @@ def google_callback():
         if not email:
             return redirect(f"{FRONTEND_URL}/#/auth?erro=email_nao_encontrado")
 
-        # Busca ou cria o usuário (sem telefone por enquanto)
         usuario = Usuario.query.filter_by(email=email).first()
         if not usuario:
             usuario = Usuario(nome=nome, email=email)
@@ -130,10 +122,6 @@ def google_callback():
 
 @oauth_bp.route("/auth/google/enviar-sms", methods=["POST"])
 def google_enviar_sms():
-    """
-    Envia OTP para o telefone informado durante o fluxo OAuth.
-    Body: { temp_token, telefone }
-    """
     dados      = request.get_json() or {}
     temp_token = dados.get("temp_token", "")
     telefone   = (dados.get("telefone") or "").strip()
@@ -153,35 +141,129 @@ def google_enviar_sms():
 
 @oauth_bp.route("/auth/google/confirmar", methods=["POST"])
 def google_confirmar():
-    """
-    Valida OTP e retorna o JWT definitivo.
-    Body: { temp_token, telefone, codigo }
-    """
     dados      = request.get_json() or {}
     temp_token = dados.get("temp_token", "")
     telefone   = (dados.get("telefone") or "").strip()
     codigo     = (dados.get("codigo")   or "").strip()
 
-    # 1. Valida token temporário
     usuario_id = _validar_temp_token(temp_token)
     if not usuario_id:
         return jsonify({"erro": "Sessão expirada. Faça login com o Google novamente."}), 401
 
-    # 2. Verifica OTP
     ok, msg = verificar_otp(telefone, codigo)
     if not ok:
         return jsonify({"erro": msg}), 400
 
-    # 3. Atualiza telefone se ainda não tinha
     usuario = db.session.get(Usuario, usuario_id)
     if not usuario:
         return jsonify({"erro": "Usuário não encontrado."}), 404
 
     if telefone and not usuario.telefone:
+        # Verifica se o telefone já pertence a outro usuário
+        outro = Usuario.query.filter_by(telefone=telefone).first()
+        if outro and outro.id != usuario_id:
+            return jsonify({
+                "erro": "Este número já está cadastrado em outra conta. Faça login pelo celular."
+            }), 409
+
         usuario.telefone = telefone
         db.session.commit()
 
-    # 4. Retorna JWT definitivo
+    jwt_token = criar_token_jwt(usuario.id)
+    return jsonify({
+        "access_token": jwt_token,
+        "usuario": {
+            "id":       usuario.id,
+            "nome":     usuario.nome,
+            "email":    usuario.email,
+            "telefone": usuario.telefone,
+        },
+    }), 200
+
+
+@oauth_bp.route("/auth/facebook", methods=["POST"])
+def facebook_login():
+    import requests as req
+
+    dados = request.get_json() or {}
+    token = (dados.get("token") or "").strip()
+
+    if not token:
+        return jsonify({"erro": "Token do Facebook não fornecido"}), 400
+
+    try:
+        url = f"https://graph.facebook.com/me?access_token={token}&fields=id,name,email"
+        resposta = req.get(url, timeout=10)
+        dados_fb = resposta.json()
+
+        if "error" in dados_fb:
+            return jsonify({"erro": "Token do Facebook inválido ou expirado"}), 401
+
+        fb_id = dados_fb.get("id")
+        nome = dados_fb.get("name") or "Usuário Facebook"
+        email = (dados_fb.get("email") or "").lower().strip()
+
+        # Se a conta do Facebook não tiver e-mail, cria um identificador único
+        if not email:
+            email = f"fb_{fb_id}@facebook.local"
+
+        usuario = Usuario.query.filter_by(email=email).first()
+        if not usuario:
+            usuario = Usuario(nome=nome, email=email)
+            db.session.add(usuario)
+            db.session.commit()
+
+        jwt_token = criar_token_jwt(usuario.id)
+        return jsonify({
+            "access_token": jwt_token,
+            "usuario": {
+                "id": usuario.id,
+                "nome": usuario.nome,
+                "email": usuario.email,
+                "telefone": usuario.telefone or "",
+            },
+        }), 200
+
+    except Exception as e:
+        print(f"[Facebook OAuth] Erro: {e}")
+        return jsonify({"erro": "Falha na autenticação com Facebook"}), 500
+
+
+# ── Rota exclusiva de desenvolvimento ────────────────────────────────────────
+# Permite logar sem validar o código OTP — só funciona com DEBUG=True no Flask.
+
+@oauth_bp.route("/auth/google/dev-bypass", methods=["POST"])
+def google_dev_bypass():
+    """
+    Bypassa a verificação do OTP em desenvolvimento.
+    Recebe o temp_token, valida a sessão e retorna um JWT sem exigir o código.
+    """
+    from flask import current_app
+    if not current_app.debug:
+        return jsonify({"erro": "Rota disponível apenas em modo de desenvolvimento."}), 403
+
+    dados      = request.get_json() or {}
+    temp_token = dados.get("temp_token", "")
+    telefone   = (dados.get("telefone") or "").strip()
+
+    usuario_id = _validar_temp_token(temp_token)
+    if not usuario_id:
+        return jsonify({"erro": "Sessão expirada. Faça login com o Google novamente."}), 401
+
+    usuario = db.session.get(Usuario, usuario_id)
+    if not usuario:
+        return jsonify({"erro": "Usuário não encontrado."}), 404
+
+    # Se vier telefone e o usuário ainda não tem, associa sem verificar OTP
+    if telefone and not usuario.telefone:
+        outro = Usuario.query.filter_by(telefone=telefone).first()
+        if outro and outro.id != usuario_id:
+            return jsonify({
+                "erro": "Este número já está cadastrado em outra conta."
+            }), 409
+        usuario.telefone = telefone
+        db.session.commit()
+
     jwt_token = criar_token_jwt(usuario.id)
     return jsonify({
         "access_token": jwt_token,
