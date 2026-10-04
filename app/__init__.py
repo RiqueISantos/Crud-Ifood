@@ -27,6 +27,7 @@ def create_app():
     from .routes.restaurante_routes import restaurante_bp
     from .routes.produto_routes import produto_bp
     from .routes.sacola_routes import sacola_bp
+    from .routes.pedido_routes import pedido_bp
 
     app.register_blueprint(usuario_bp, url_prefix="/usuarios")
     app.register_blueprint(oauth_bp)
@@ -34,5 +35,6 @@ def create_app():
     app.register_blueprint(restaurante_bp, url_prefix="/restaurantes")
     app.register_blueprint(produto_bp, url_prefix="/produtos")
     app.register_blueprint(sacola_bp, url_prefix="/sacola")
+    app.register_blueprint(pedido_bp)
 
     return app

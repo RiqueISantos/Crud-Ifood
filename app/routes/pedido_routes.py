@@ -1,0 +1,135 @@
+from flask import Blueprint, request, jsonify
+from services.auth import jwt_required
+from ..controllers.pedido_controller import PedidoController
+from ..models.models import StatusPedido, FormaPagamento
+
+pedido_bp = Blueprint("pedidos", __name__, url_prefix="/pedidos")
+
+
+def serializar_pedido(pedido):
+    """Serializa um Pedido completo com seus itens."""
+    return {
+        "id":              pedido.id,
+        "status":          pedido.status.value,
+        "forma_pagamento": pedido.forma_pagamento.value if pedido.forma_pagamento else None,
+        "observacao":      pedido.observacao,
+        "restaurante": {
+            "id":   pedido.restaurante.id,
+            "nome": pedido.restaurante.nome,
+        } if pedido.restaurante else None,
+        "endereco": {
+            "id":          pedido.endereco.id,
+            "logradouro":  pedido.endereco.logradouro,
+            "numero":      pedido.endereco.numero,
+            "complemento": pedido.endereco.complemento,
+            "bairro":      pedido.endereco.bairro,
+            "cidade":      pedido.endereco.cidade,
+            "uf":          pedido.endereco.uf,
+        } if pedido.endereco else None,
+        "itens": [
+            {
+                "id":             item.id,
+                "produto_id":     item.produto_id,
+                "nome_produto":   item.nome_produto,
+                "preco_unitario": item.preco_unitario,
+                "quantidade":     item.quantidade,
+                "observacao":     item.observacao,
+                "subtotal_item":  item.subtotal_item,
+            }
+            for item in pedido.itens
+        ],
+        "subtotal":     pedido.subtotal,
+        "taxa_entrega": pedido.taxa_entrega,
+        "total":        pedido.total,
+        "criado_em":    pedido.criado_em.isoformat() if pedido.criado_em else None,
+        "atualizado_em": pedido.atualizado_em.isoformat() if pedido.atualizado_em else None,
+    }
+
+
+# ── Usuário ───────────────────────────────────────────────────────────────────
+
+@pedido_bp.route("/confirmar", methods=["POST"])
+@jwt_required
+def confirmar_pedido(usuario_id):
+    """
+    Converte a sacola em pedido.
+    Payload: { "endereco_id": 1, "forma_pagamento": "PIX", "observacao": "..." }
+    """
+    dados = request.get_json() or {}
+    pedido, erro, status = PedidoController.confirmar(usuario_id, dados)
+    if erro:
+        return jsonify({"erro": erro}), status
+    return jsonify(serializar_pedido(pedido)), status
+
+
+@pedido_bp.route("/meus", methods=["GET"])
+@jwt_required
+def listar_meus_pedidos(usuario_id):
+    """Lista todos os pedidos do usuário autenticado."""
+    pedidos, erro, status = PedidoController.listar_por_usuario(usuario_id)
+    if erro:
+        return jsonify({"erro": erro}), status
+    return jsonify([serializar_pedido(p) for p in pedidos]), status
+
+
+@pedido_bp.route("/<int:pedido_id>", methods=["GET"])
+@jwt_required
+def buscar_pedido(pedido_id, usuario_id):
+    """Busca os detalhes de um pedido específico do usuário."""
+    pedido, erro, status = PedidoController.buscar(pedido_id, usuario_id)
+    if erro:
+        return jsonify({"erro": erro}), status
+    return jsonify(serializar_pedido(pedido)), status
+
+
+@pedido_bp.route("/<int:pedido_id>/cancelar", methods=["PATCH"])
+@jwt_required
+def cancelar_pedido(pedido_id, usuario_id):
+    """
+    Cancela o pedido. Permitido apenas nos status:
+    AGUARDANDO_CONFIRMACAO ou CONFIRMADO.
+    """
+    pedido, erro, status = PedidoController.cancelar(pedido_id, usuario_id)
+    if erro:
+        return jsonify({"erro": erro}), status
+    return jsonify(serializar_pedido(pedido)), status
+
+
+# ── Restaurante ───────────────────────────────────────────────────────────────
+
+@pedido_bp.route("/restaurante", methods=["GET"])
+@jwt_required
+def listar_pedidos_restaurante(usuario_id):
+    """
+    Lista todos os pedidos recebidos pelo restaurante autenticado.
+    O JWT aqui deve ser do restaurante.
+    """
+    pedidos, erro, status = PedidoController.listar_por_restaurante(usuario_id)
+    if erro:
+        return jsonify({"erro": erro}), status
+    return jsonify([serializar_pedido(p) for p in pedidos]), status
+
+
+@pedido_bp.route("/<int:pedido_id>/status", methods=["PATCH"])
+@jwt_required
+def avancar_status(pedido_id, usuario_id):
+    """
+    Avança o status do pedido para o próximo na sequência.
+    Sequência: AGUARDANDO → CONFIRMADO → EM_PREPARACAO → SAIU_PARA_ENTREGA → ENTREGUE
+    JWT deve ser do restaurante dono do pedido.
+    """
+    pedido, erro, status = PedidoController.avancar_status(pedido_id, usuario_id)
+    if erro:
+        return jsonify({"erro": erro}), status
+    return jsonify(serializar_pedido(pedido)), status
+
+
+# ── Utilitário ────────────────────────────────────────────────────────────────
+
+@pedido_bp.route("/status/opcoes", methods=["GET"])
+def listar_status():
+    """Retorna todos os status e formas de pagamento disponíveis."""
+    return jsonify({
+        "status":            [s.value for s in StatusPedido],
+        "formas_pagamento":  [f.value for f in FormaPagamento],
+    }), 200

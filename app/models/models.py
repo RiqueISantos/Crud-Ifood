@@ -1,8 +1,26 @@
+import enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, BigInteger, String, DateTime, Boolean, Float, Index, ForeignKey
+from sqlalchemy import Column, BigInteger, String, DateTime, Boolean, Float, Index, ForeignKey, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+
+
+class StatusPedido(enum.Enum):
+    AGUARDANDO_CONFIRMACAO = "AGUARDANDO_CONFIRMACAO"  # pedido criado, aguarda restaurante aceitar
+    CONFIRMADO             = "CONFIRMADO"              # restaurante aceitou
+    EM_PREPARACAO          = "EM_PREPARACAO"           # cozinha preparando
+    SAIU_PARA_ENTREGA      = "SAIU_PARA_ENTREGA"       # entregador a caminho
+    ENTREGUE               = "ENTREGUE"                # finalizado com sucesso
+    CANCELADO              = "CANCELADO"               # cancelado por qualquer parte
+
+
+class FormaPagamento(enum.Enum):
+    CREDITO   = "CREDITO"
+    DEBITO    = "DEBITO"
+    PIX       = "PIX"
+    DINHEIRO  = "DINHEIRO"
+    VALE      = "VALE"
 
 
 class CodigoVerificacao(Base):
@@ -147,3 +165,87 @@ class ItemSacola(Base):
 
     sacola = relationship("Sacola", back_populates="itens")
     produto = relationship("Produto", lazy="selectin")
+
+
+
+
+    
+
+
+class Pedido(Base):
+    __tablename__ = "pedido"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    usuario_id = Column(
+        BigInteger,
+        ForeignKey("usuarios.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    restaurante_id = Column(
+        BigInteger,
+        ForeignKey("restaurante.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    endereco_id = Column(
+        BigInteger,
+        ForeignKey("enderecos.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    status = Column(
+        Enum(StatusPedido),
+        nullable=False,
+        default=StatusPedido.AGUARDANDO_CONFIRMACAO,
+        index=True,
+    )
+    forma_pagamento = Column(Enum(FormaPagamento), nullable=True)
+
+    subtotal      = Column(Float, nullable=False, default=0.0)
+    taxa_entrega  = Column(Float, nullable=False, default=0.0)
+    total         = Column(Float, nullable=False, default=0.0)
+
+    observacao = Column(String(500), nullable=True)
+
+    criado_em     = Column(DateTime, server_default=func.now(), nullable=False)
+    atualizado_em = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    usuario    = relationship("Usuario")
+    restaurante = relationship("Restaurante")
+    endereco   = relationship("Endereco")
+    itens      = relationship(
+        "ItemPedido",
+        back_populates="pedido",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class ItemPedido(Base):
+    __tablename__ = "item_pedido"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    pedido_id = Column(
+        BigInteger,
+        ForeignKey("pedido.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    produto_id = Column(
+        BigInteger,
+        ForeignKey("produto.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Cópia imutável no momento do pedido — protege histórico se o produto mudar
+    nome_produto    = Column(String(60),  nullable=False)
+    preco_unitario  = Column(Float,       nullable=False)
+    quantidade      = Column(BigInteger,  nullable=False, default=1)
+    observacao      = Column(String(255), nullable=True)
+    subtotal_item   = Column(Float,       nullable=False)
+
+    pedido  = relationship("Pedido", back_populates="itens")
+    produto = relationship("Produto")
