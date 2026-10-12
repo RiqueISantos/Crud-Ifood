@@ -7,12 +7,13 @@ from app.database import Base
 
 
 class StatusPedido(enum.Enum):
-    AGUARDANDO_CONFIRMACAO = "AGUARDANDO_CONFIRMACAO"  # pedido criado, aguarda restaurante aceitar
-    CONFIRMADO             = "CONFIRMADO"              # restaurante aceitou
-    EM_PREPARACAO          = "EM_PREPARACAO"           # cozinha preparando
-    SAIU_PARA_ENTREGA      = "SAIU_PARA_ENTREGA"       # entregador a caminho
-    ENTREGUE               = "ENTREGUE"                # finalizado com sucesso
-    CANCELADO              = "CANCELADO"               # cancelado por qualquer parte
+    AGUARDANDO_PAGAMENTO   = "AGUARDANDO_PAGAMENTO"    
+    AGUARDANDO_CONFIRMACAO = "AGUARDANDO_CONFIRMACAO"  
+    CONFIRMADO             = "CONFIRMADO"              
+    EM_PREPARACAO          = "EM_PREPARACAO"           
+    SAIU_PARA_ENTREGA      = "SAIU_PARA_ENTREGA"       
+    ENTREGUE               = "ENTREGUE"                
+    CANCELADO              = "CANCELADO"               
 
 
 class FormaPagamento(enum.Enum):
@@ -48,6 +49,7 @@ class Usuario(Base):
     telefone = Column(String(20), nullable=True, index=True)
     documento = Column(String(20), nullable=True) 
     criado_em = Column(DateTime, server_default=func.now())
+    asaas_customer_id = db.Column(db.String(50), nullable=True)
 
 
 class Endereco(Base):
@@ -208,6 +210,9 @@ class Pedido(Base):
     total         = Column(Float, nullable=False, default=0.0)
 
     observacao = Column(String(500), nullable=True)
+    
+    gateway_pagamento_id = Column(String(100), nullable=True, index=True) 
+    url_pagamento = Column(String(500), nullable=True)
 
     criado_em     = Column(DateTime, server_default=func.now(), nullable=False)
     atualizado_em = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)

@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
 from services.auth import jwt_required
 from ..controllers.pedido_controller import PedidoController
-from ..models.models import StatusPedido, FormaPagamento
+from ..models.models import StatusPedido, FormaPagamento, Sacola, Endereco, Pedido
+from ..database import db
 
 pedido_bp = Blueprint("pedidos", __name__, url_prefix="/pedidos")
 
@@ -13,6 +14,8 @@ def serializar_pedido(pedido):
         "status":          pedido.status.value,
         "forma_pagamento": pedido.forma_pagamento.value if pedido.forma_pagamento else None,
         "observacao":      pedido.observacao,
+        "gateway_pagamento_id": pedido.gateway_pagamento_id, 
+        "url_pagamento":   pedido.url_pagamento,
         "restaurante": {
             "id":   pedido.restaurante.id,
             "nome": pedido.restaurante.nome,
@@ -51,16 +54,17 @@ def serializar_pedido(pedido):
 @pedido_bp.route("/confirmar", methods=["POST"])
 @jwt_required
 def confirmar_pedido(usuario_id):
-    """
-    Converte a sacola em pedido.
-    Payload: { "endereco_id": 1, "forma_pagamento": "PIX", "observacao": "..." }
-    """
     dados = request.get_json() or {}
-    pedido, erro, status = PedidoController.confirmar(usuario_id, dados)
-    if erro:
-        return jsonify({"erro": erro}), status
-    return jsonify(serializar_pedido(pedido)), status
+    
+    if not dados.get("endereco_id"):
+        return jsonify({"erro": "O ID do endereço é obrigatório"}), 400
 
+    pedido, erro, status = PedidoController.confirmar(usuario_id, dados)
+    
+    if erro:
+        return jsonify({"erro": f"Erro no controller: {erro}"}), status
+        
+    return jsonify(serializar_pedido(pedido)), status
 
 @pedido_bp.route("/meus", methods=["GET"])
 @jwt_required
@@ -115,9 +119,9 @@ def listar_pedidos_restaurante(usuario_id):
 def avancar_status(pedido_id, usuario_id):
     """
     Avança o status do pedido para o próximo na sequência.
-    Sequência: AGUARDANDO → CONFIRMADO → EM_PREPARACAO → SAIU_PARA_ENTREGA → ENTREGUE
     JWT deve ser do restaurante dono do pedido.
     """
+    # O 'usuario_id' aqui representa o dono do restaurante logado
     pedido, erro, status = PedidoController.avancar_status(pedido_id, usuario_id)
     if erro:
         return jsonify({"erro": erro}), status
@@ -133,3 +137,20 @@ def listar_status():
         "status":            [s.value for s in StatusPedido],
         "formas_pagamento":  [f.value for f in FormaPagamento],
     }), 200
+
+@pedido_bp.route("/webhook/asaas", methods=["POST"])
+def webhook_asaas():
+    dados = request.get_json()
+
+    if dados and dados.get("event") == "PAYMENT_RECEIVED":
+        # O Asaas devolve o ID do nosso pedido dentro de "externalReference"
+        pedido_id = dados.get("payment", {}).get("externalReference")
+        
+        if pedido_id:
+            pedido = Pedido.query.get(pedido_id)
+            if pedido:
+                pedido.status = "AGUARDANDO_CONFIRMACAO"
+                db.session.commit()
+                return jsonify({"status": "Webhook processado com sucesso"}), 200
+                
+    return jsonify({"status": "Evento ignorado ou dados inválidos"}), 200

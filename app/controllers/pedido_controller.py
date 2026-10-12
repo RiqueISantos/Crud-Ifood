@@ -1,7 +1,10 @@
+import requests
+from datetime import datetime, timedelta
+import os
 from ..database import db
 from ..models.models import (
     Pedido, ItemPedido, Sacola, Endereco,
-    StatusPedido, FormaPagamento
+    StatusPedido, FormaPagamento, Usuario
 )
 
 
@@ -22,20 +25,12 @@ class PedidoController:
 
     @staticmethod
     def confirmar(usuario_id: int, dados: dict):
-        """
-        Converte a sacola atual do usuário em um Pedido.
-        dados esperados:
-          - endereco_id      (int, obrigatório)
-          - forma_pagamento  (str, obrigatório) — CREDITO, DEBITO, PIX, DINHEIRO, VALE
-          - observacao       (str, opcional)
-        """
         endereco_id     = dados.get("endereco_id")
         forma_pgto_str  = (dados.get("forma_pagamento") or "").strip().upper()
         observacao      = dados.get("observacao")
 
         if not endereco_id:
             return None, "Campo 'endereco_id' é obrigatório", 400
-
         if not forma_pgto_str:
             return None, "Campo 'forma_pagamento' é obrigatório", 400
 
@@ -50,34 +45,73 @@ class PedidoController:
         if not endereco:
             return None, "Endereço não encontrado", 404
         if endereco.usuario_id != usuario_id:
-            return None, "Acesso negado: endereço não pertence ao usuário", 403
+            return None, "Acesso negado", 403
 
-        # Busca sacola com itens
-        sacola = db.session.query(Sacola).filter_by(usuario_id=usuario_id).first()
+        sacola = Sacola.query.filter_by(usuario_id=usuario_id).first()
         if not sacola or not sacola.itens:
-            return None, "Sacola vazia. Adicione produtos antes de confirmar o pedido", 400
+            return None, "A sacola está vazia", 400
 
         restaurante = sacola.restaurante
         subtotal = sum(item.produto.preco * item.quantidade for item in sacola.itens)
         taxa_entrega = restaurante.taxa_entrega or 0.0
         total = subtotal + taxa_entrega
 
-        # Cria o pedido
         pedido = Pedido(
             usuario_id=usuario_id,
             restaurante_id=sacola.restaurante_id,
             endereco_id=endereco_id,
             forma_pagamento=forma_pagamento,
-            status=StatusPedido.AGUARDANDO_CONFIRMACAO,
             subtotal=round(subtotal, 2),
             taxa_entrega=round(taxa_entrega, 2),
             total=round(total, 2),
             observacao=observacao,
         )
         db.session.add(pedido)
-        db.session.flush()  # gera pedido.id antes de criar os itens
+        db.session.flush() 
 
-        # Copia os itens da sacola como snapshot imutável
+        pagamento_online = forma_pagamento in [FormaPagamento.PIX, FormaPagamento.CREDITO, FormaPagamento.DEBITO]
+        
+        if pagamento_online:
+            pedido.status = StatusPedido.AGUARDANDO_PAGAMENTO
+            
+            chave_asaas = os.getenv("CHAVE_ASAAS")
+            url_asaas = "https://sandbox.asaas.com/api/v3/payments"
+            
+            headers = {
+                "access_token": chave_asaas,
+                "Content-Type": "application/json"
+            }
+            
+            billing_type = "PIX" if forma_pagamento == FormaPagamento.PIX else "CREDIT_CARD"
+            vencimento = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+            dono_do_pedido = db.session.get(Usuario, usuario_id)
+
+            payload = {
+                "customer": dono_do_pedido.asaas_customer_id, 
+                "billingType": billing_type,
+                "value": float(pedido.total),
+                "dueDate": vencimento,
+                "description": f"Pedido #{pedido.id} - {restaurante.nome}",
+                "externalReference": str(pedido.id)
+            }
+            
+            try:
+                resposta = requests.post(url_asaas, json=payload, headers=headers)
+                dados_pgto = resposta.json()
+                
+                if resposta.status_code == 200:
+                    pedido.gateway_pagamento_id = dados_pgto.get("id")
+                    pedido.url_pagamento = dados_pgto.get("invoiceUrl")
+                else:
+                    db.session.rollback()
+                    return None, f"Erro na operadora de pagamento: {dados_pgto}", 400
+            except Exception as e:
+                db.session.rollback()
+                return None, f"Falha ao conectar com o gateway de pagamento: {str(e)}", 503
+        else:
+            pedido.status = StatusPedido.AGUARDANDO_CONFIRMACAO
+
+        # Copia os itens da sacola
         for item in sacola.itens:
             item_pedido = ItemPedido(
                 pedido_id=pedido.id,
@@ -90,16 +124,15 @@ class PedidoController:
             )
             db.session.add(item_pedido)
 
-        # Limpa a sacola após confirmação
+        # Limpa a sacola e commita
         db.session.delete(sacola)
-
+        
         try:
             db.session.commit()
             return pedido, None, 201
         except Exception as exc:
             db.session.rollback()
             return None, f"Erro ao criar pedido: {str(exc)}", 500
-
     # ------------------------------------------------------------------
     # Leitura
     # ------------------------------------------------------------------
@@ -166,21 +199,36 @@ class PedidoController:
             return None, f"Erro ao atualizar status: {str(exc)}", 500
 
     @staticmethod
-    def cancelar(pedido_id: int, usuario_id: int):
+    def cancelar(pedido_id:int, usuario_id:int):
         """
         Cancela o pedido. Permitido apenas se ainda estiver
-        AGUARDANDO_CONFIRMACAO ou CONFIRMADO.
+        AGUARDANDO_PAGAMENTO, AGUARDANDO_CONFIRMACAO ou CONFIRMADO.
         """
         pedido = db.session.get(Pedido, pedido_id)
         if not pedido:
             return None, "Pedido não encontrado", 404
-        if pedido.usuario_id != usuario_id:
+        if int(pedido.usuario_id) != int(usuario_id):
             return None, "Acesso negado", 403
 
-        cancelaveis = {StatusPedido.AGUARDANDO_CONFIRMACAO, StatusPedido.CONFIRMADO}
+        cancelaveis = {StatusPedido.AGUARDANDO_PAGAMENTO, StatusPedido.AGUARDANDO_CONFIRMACAO, StatusPedido.CONFIRMADO}
         if pedido.status not in cancelaveis:
             return None, f"Não é possível cancelar um pedido com status '{pedido.status.value}'", 400
 
+        if pedido.gateway_pagamento_id:
+            try:
+                url_asaas = f"https://sandbox.asaas.com/api/v3/payments/{pedido.gateway_pagamento_id}"
+                headers = {
+                    "access_token": os.getenv("CHAVE_ASAAS")
+                }
+                
+                resposta_asaas = requests.delete(url_asaas, headers=headers)
+                
+                if resposta_asaas.status_code != 200:
+                    erro_msg = resposta_asaas.json().get('errors', [{'description': 'Erro desconhecido'}])[0]['description']
+                    return None, f"O cancelamento foi recusado pela operadora: {erro_msg}", 400
+                    
+            except Exception as e:
+                return None, f"Erro de comunicação com a operadora de pagamento: {str(e)}", 500
         pedido.status = StatusPedido.CANCELADO
 
         try:
@@ -189,3 +237,10 @@ class PedidoController:
         except Exception as exc:
             db.session.rollback()
             return None, f"Erro ao cancelar pedido: {str(exc)}", 500
+
+    @staticmethod
+    def confirmar_pagamento_webhook(pedido_id):
+        pedido = db.session.get(Pedido, int(pedido_id))
+        if pedido and pedido.status == StatusPedido.AGUARDANDO_PAGAMENTO:
+            pedido.status = StatusPedido.AGUARDANDO_CONFIRMACAO
+            db.session.commit()
