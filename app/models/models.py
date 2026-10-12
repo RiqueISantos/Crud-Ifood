@@ -49,7 +49,7 @@ class Usuario(Base):
     telefone = Column(String(20), nullable=True, index=True)
     documento = Column(String(20), nullable=True) 
     criado_em = Column(DateTime, server_default=func.now())
-    asaas_customer_id = db.Column(db.String(50), nullable=True)
+    asaas_customer_id = Column(String(50), nullable=True)
 
 
 class Endereco(Base):
