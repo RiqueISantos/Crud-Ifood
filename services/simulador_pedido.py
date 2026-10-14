@@ -13,14 +13,14 @@ Fluxo para PIX/cartão (simulado — ignora gateway real):
 
 from datetime import datetime, timedelta, timezone
 
-# Delay acumulado em minutos a partir da criação do pedido
+# Delay acumulado em SEGUNDOS a partir da criação do pedido (modo dev)
 _SEQUENCIA = [
-    # (status_esperado,          proximo_status,          minutos_desde_criacao)
-    ("AGUARDANDO_PAGAMENTO",   "AGUARDANDO_CONFIRMACAO", 1),
-    ("AGUARDANDO_CONFIRMACAO", "CONFIRMADO",             2),
-    ("CONFIRMADO",             "EM_PREPARACAO",          4),
-    ("EM_PREPARACAO",          "SAIU_PARA_ENTREGA",      7),
-    ("SAIU_PARA_ENTREGA",      "ENTREGUE",               10),
+    # (status_esperado,          proximo_status,          segundos_desde_criacao)
+    ("AGUARDANDO_PAGAMENTO",   "AGUARDANDO_CONFIRMACAO", 10),
+    ("AGUARDANDO_CONFIRMACAO", "CONFIRMADO",             20),
+    ("CONFIRMADO",             "EM_PREPARACAO",          35),
+    ("EM_PREPARACAO",          "SAIU_PARA_ENTREGA",      50),
+    ("SAIU_PARA_ENTREGA",      "ENTREGUE",               70),
 ]
 
 
@@ -81,7 +81,7 @@ def simular_progresso(scheduler, app, pedido_id: int, status_inicial: str):
         if not ativo:
             continue
 
-        run_at = agora + timedelta(minutes=minutos)
+        run_at = agora + timedelta(seconds=minutos)
 
         scheduler.add_job(
             func=_avancar_status_pedido,
@@ -93,4 +93,4 @@ def simular_progresso(scheduler, app, pedido_id: int, status_inicial: str):
         )
 
     print(f"[Simulador] Progresso agendado para pedido {pedido_id} "
-          f"a partir de '{status_inicial}' (até 10 min)")
+          f"a partir de '{status_inicial}' (até 70 segundos)")
