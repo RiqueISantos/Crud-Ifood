@@ -70,35 +70,39 @@ class PedidoController:
         db.session.flush() 
 
         pagamento_online = forma_pagamento in [FormaPagamento.PIX, FormaPagamento.CREDITO, FormaPagamento.DEBITO]
-        
-        if pagamento_online:
+
+        # Em modo debug, pula integração com Asaas e cria pedido direto
+        from flask import current_app
+        if pagamento_online and current_app.debug:
+            pedido.status = StatusPedido.AGUARDANDO_CONFIRMACAO
+        elif pagamento_online:
             pedido.status = StatusPedido.AGUARDANDO_PAGAMENTO
-            
+
             chave_asaas = os.getenv("CHAVE_ASAAS")
             url_asaas = "https://sandbox.asaas.com/api/v3/payments"
-            
+
             headers = {
                 "access_token": chave_asaas,
                 "Content-Type": "application/json"
             }
-            
+
             billing_type = "PIX" if forma_pagamento == FormaPagamento.PIX else "CREDIT_CARD"
             vencimento = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
             dono_do_pedido = db.session.get(Usuario, usuario_id)
 
             payload = {
-                "customer": dono_do_pedido.asaas_customer_id, 
+                "customer": dono_do_pedido.asaas_customer_id,
                 "billingType": billing_type,
                 "value": float(pedido.total),
                 "dueDate": vencimento,
                 "description": f"Pedido #{pedido.id} - {restaurante.nome}",
                 "externalReference": str(pedido.id)
             }
-            
+
             try:
                 resposta = requests.post(url_asaas, json=payload, headers=headers)
                 dados_pgto = resposta.json()
-                
+
                 if resposta.status_code == 200:
                     pedido.gateway_pagamento_id = dados_pgto.get("id")
                     pedido.url_pagamento = dados_pgto.get("invoiceUrl")
