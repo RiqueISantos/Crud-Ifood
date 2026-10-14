@@ -133,6 +133,13 @@ class PedidoController:
         
         try:
             db.session.commit()
+
+            # Inicia a simulação automática de progresso do pedido
+            from app import scheduler
+            from services.simulador_pedido import simular_progresso
+            import flask
+            simular_progresso(scheduler, flask.current_app._get_current_object(), pedido.id, pedido.status.value)
+
             return pedido, None, 201
         except Exception as exc:
             db.session.rollback()

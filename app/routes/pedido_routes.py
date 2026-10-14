@@ -1,8 +1,11 @@
-from flask import Blueprint, request, jsonify
-from services.auth import jwt_required
+from flask import Blueprint, request, jsonify, Response, stream_with_context
+from services.auth import jwt_required, verificar_token_jwt
+from services.sse_manager import registrar, remover
 from ..controllers.pedido_controller import PedidoController
 from ..models.models import StatusPedido, FormaPagamento, Sacola, Endereco, Pedido
 from ..database import db
+import json
+import queue
 
 pedido_bp = Blueprint("pedidos", __name__, url_prefix="/pedidos")
 
@@ -137,6 +140,76 @@ def listar_status():
         "status":            [s.value for s in StatusPedido],
         "formas_pagamento":  [f.value for f in FormaPagamento],
     }), 200
+
+# ── SSE — Acompanhamento em tempo real ───────────────────────────────────────
+
+@pedido_bp.route("/<int:pedido_id>/acompanhar", methods=["GET"])
+def acompanhar_pedido(pedido_id):
+    """
+    Abre uma conexão SSE para acompanhar o pedido em tempo real.
+
+    Autenticação via query param (SSE não suporta headers customizados):
+      GET /pedidos/1/acompanhar?token=<access_token>
+
+    O frontend consome assim:
+      const es = new EventSource('/pedidos/1/acompanhar?token=SEU_TOKEN')
+      es.onmessage = (e) => {
+        const { status } = JSON.parse(e.data)
+        // atualiza a UI
+      }
+    """
+    # Valida o JWT via query param (SSE não permite Authorization header)
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"erro": "Token é obrigatório"}), 401
+
+    try:
+        payload = verificar_token_jwt(token)
+        usuario_id = int(payload["sub"])
+    except Exception:
+        return jsonify({"erro": "Token inválido ou expirado"}), 401
+
+    # Verifica se o pedido pertence ao usuário
+    pedido = db.session.get(Pedido, pedido_id)
+    if not pedido:
+        return jsonify({"erro": "Pedido não encontrado"}), 404
+    if pedido.usuario_id != usuario_id:
+        return jsonify({"erro": "Acesso negado"}), 403
+
+    def stream():
+        fila = registrar(pedido_id)
+
+        # Envia o status atual imediatamente ao conectar
+        yield f"data: {json.dumps({'status': pedido.status.value, 'pedido_id': pedido_id})}\n\n"
+
+        try:
+            while True:
+                try:
+                    # Aguarda próximo evento com timeout de 25s (keepalive)
+                    evento = fila.get(timeout=25)
+                    yield f"data: {json.dumps(evento)}\n\n"
+
+                    # Fecha a conexão quando o pedido for finalizado
+                    if evento.get("status") in ("ENTREGUE", "CANCELADO"):
+                        break
+
+                except queue.Empty:
+                    # Keepalive — evita que proxies fechem a conexão por inatividade
+                    yield ": keepalive\n\n"
+        finally:
+            remover(pedido_id, fila)
+
+    return Response(
+        stream_with_context(stream()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # desativa buffer do Nginx se houver
+        },
+    )
+
+
+# ── Webhook Asaas ─────────────────────────────────────────────────────────────
 
 @pedido_bp.route("/webhook/asaas", methods=["POST"])
 def webhook_asaas():

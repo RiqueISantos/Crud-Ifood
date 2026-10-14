@@ -3,10 +3,14 @@ from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
 from .database import db
 from .routes import usuario_bp
 
 load_dotenv()
+
+# Scheduler global — acessível pelo simulador
+scheduler = BackgroundScheduler(timezone="UTC")
 
 
 def create_app():
@@ -21,6 +25,10 @@ def create_app():
     db.init_app(app)
     Migrate(app, db)
     CORS(app, origins=["http://localhost:5173", "http://localhost:5174"])
+
+    # Inicia o scheduler apenas uma vez
+    if not scheduler.running:
+        scheduler.start()
 
     from .routes.oauth_routes import oauth_bp
     from .routes.endereco_routes import endereco_bp
