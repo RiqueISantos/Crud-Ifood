@@ -69,3 +69,15 @@ def limpar_sacola(usuario_id):
     if erro:
         return jsonify({"erro": erro}), status
     return jsonify(resultado), status
+
+@sacola_bp.route("/sincronizar", methods=["POST"])
+@jwt_required
+def sincronizar_sacola(usuario_id):
+  """Recebe a lista de produtos temporários do visitante e consolida na conta logada."""
+  dados = request.get_json() or {}
+  resultado, erro, status = SacolaController.sincronizar_sacola(
+      usuario_id, dados
+  )
+  if erro:
+    return jsonify({"erro": erro}), status
+  return jsonify(resultado), status

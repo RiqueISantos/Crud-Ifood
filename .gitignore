@@ -23,3 +23,5 @@ env/
 
 # Docker
 postgres_data/
+
+migrations/
