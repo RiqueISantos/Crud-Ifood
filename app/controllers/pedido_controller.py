@@ -4,7 +4,7 @@ import os
 from ..database import db
 from ..models.models import (
     Pedido, ItemPedido, Sacola, Endereco,
-    StatusPedido, FormaPagamento, Usuario
+    StatusPedido, FormaPagamento, TipoEntrega, Usuario
 )
 
 
@@ -25,12 +25,32 @@ class PedidoController:
 
     @staticmethod
     def confirmar(usuario_id: int, dados: dict):
-        endereco_id     = dados.get("endereco_id")
-        forma_pgto_str  = (dados.get("forma_pagamento") or "").strip().upper()
-        observacao      = dados.get("observacao")
+        endereco_id        = dados.get("endereco_id")
+        forma_pgto_str     = (dados.get("forma_pagamento") or "").strip().upper()
+        tipo_entrega_str   = (dados.get("tipo_entrega") or "ENTREGA").strip().upper()
+        observacao         = dados.get("observacao")
 
-        if not endereco_id:
-            return None, "Campo 'endereco_id' é obrigatório", 400
+        # ── Valida tipo_entrega ────────────────────────────────────────
+        try:
+            tipo_entrega = TipoEntrega[tipo_entrega_str]
+        except KeyError:
+            opcoes = ", ".join([t.value for t in TipoEntrega])
+            return None, f"Tipo de entrega inválido. Opções: {opcoes}", 400
+
+        # ── Valida endereco_id (obrigatório apenas para ENTREGA) ───────
+        if tipo_entrega == TipoEntrega.ENTREGA:
+            if not endereco_id:
+                return None, "Campo 'endereco_id' é obrigatório para entrega", 400
+            endereco = db.session.get(Endereco, endereco_id)
+            if not endereco:
+                return None, "Endereço não encontrado", 404
+            if endereco.usuario_id != usuario_id:
+                return None, "Acesso negado", 403
+        else:
+            # RETIRADA — endereço não é necessário
+            endereco_id = None
+
+        # ── Valida forma_pagamento ─────────────────────────────────────
         if not forma_pgto_str:
             return None, "Campo 'forma_pagamento' é obrigatório", 400
 
@@ -40,20 +60,16 @@ class PedidoController:
             opcoes = ", ".join([f.value for f in FormaPagamento])
             return None, f"Forma de pagamento inválida. Opções: {opcoes}", 400
 
-        # Valida endereço e ownership
-        endereco = db.session.get(Endereco, endereco_id)
-        if not endereco:
-            return None, "Endereço não encontrado", 404
-        if endereco.usuario_id != usuario_id:
-            return None, "Acesso negado", 403
-
+        # ── Sacola ─────────────────────────────────────────────────────
         sacola = Sacola.query.filter_by(usuario_id=usuario_id).first()
         if not sacola or not sacola.itens:
             return None, "A sacola está vazia", 400
 
         restaurante = sacola.restaurante
         subtotal = sum(item.produto.preco * item.quantidade for item in sacola.itens)
-        taxa_entrega = restaurante.taxa_entrega or 0.0
+
+        # Taxa de entrega só é cobrada quando o tipo for ENTREGA
+        taxa_entrega = (restaurante.taxa_entrega or 0.0) if tipo_entrega == TipoEntrega.ENTREGA else 0.0
         total = subtotal + taxa_entrega
 
         pedido = Pedido(
@@ -61,13 +77,14 @@ class PedidoController:
             restaurante_id=sacola.restaurante_id,
             endereco_id=endereco_id,
             forma_pagamento=forma_pagamento,
+            tipo_entrega=tipo_entrega,
             subtotal=round(subtotal, 2),
             taxa_entrega=round(taxa_entrega, 2),
             total=round(total, 2),
             observacao=observacao,
         )
         db.session.add(pedido)
-        db.session.flush() 
+        db.session.flush()
 
         pagamento_online = forma_pagamento in [FormaPagamento.PIX, FormaPagamento.CREDITO, FormaPagamento.DEBITO]
 

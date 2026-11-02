@@ -24,6 +24,11 @@ class FormaPagamento(enum.Enum):
     VALE      = "VALE"
 
 
+class TipoEntrega(enum.Enum):
+    ENTREGA  = "ENTREGA"   # entregador leva até o endereço do cliente
+    RETIRADA = "RETIRADA"  # cliente retira no balcão do restaurante
+
+
 class CodigoVerificacao(Base):
     __tablename__ = "codigos_verificacao"
 
@@ -204,6 +209,11 @@ class Pedido(Base):
         index=True,
     )
     forma_pagamento = Column(Enum(FormaPagamento), nullable=True)
+    tipo_entrega    = Column(
+        Enum(TipoEntrega),
+        nullable=False,
+        default=TipoEntrega.ENTREGA,
+    )
 
     subtotal      = Column(Float, nullable=False, default=0.0)
     taxa_entrega  = Column(Float, nullable=False, default=0.0)

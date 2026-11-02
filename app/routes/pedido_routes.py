@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, Response, stream_with_context
 from services.auth import jwt_required, verificar_token_jwt
 from services.sse_manager import registrar, remover
 from ..controllers.pedido_controller import PedidoController
-from ..models.models import StatusPedido, FormaPagamento, Sacola, Endereco, Pedido
+from ..models.models import StatusPedido, FormaPagamento, TipoEntrega, Sacola, Endereco, Pedido
 from ..database import db
 import json
 import queue
@@ -16,8 +16,9 @@ def serializar_pedido(pedido):
         "id":              pedido.id,
         "status":          pedido.status.value,
         "forma_pagamento": pedido.forma_pagamento.value if pedido.forma_pagamento else None,
+        "tipo_entrega":    pedido.tipo_entrega.value if pedido.tipo_entrega else None,
         "observacao":      pedido.observacao,
-        "gateway_pagamento_id": pedido.gateway_pagamento_id, 
+        "gateway_pagamento_id": pedido.gateway_pagamento_id,
         "url_pagamento":   pedido.url_pagamento,
         "restaurante": {
             "id":   pedido.restaurante.id,
@@ -44,10 +45,10 @@ def serializar_pedido(pedido):
             }
             for item in pedido.itens
         ],
-        "subtotal":     pedido.subtotal,
-        "taxa_entrega": pedido.taxa_entrega,
-        "total":        pedido.total,
-        "criado_em":    pedido.criado_em.isoformat() if pedido.criado_em else None,
+        "subtotal":      pedido.subtotal,
+        "taxa_entrega":  pedido.taxa_entrega,
+        "total":         pedido.total,
+        "criado_em":     pedido.criado_em.isoformat() if pedido.criado_em else None,
         "atualizado_em": pedido.atualizado_em.isoformat() if pedido.atualizado_em else None,
     }
 
@@ -58,15 +59,12 @@ def serializar_pedido(pedido):
 @jwt_required
 def confirmar_pedido(usuario_id):
     dados = request.get_json() or {}
-    
-    if not dados.get("endereco_id"):
-        return jsonify({"erro": "O ID do endereço é obrigatório"}), 400
 
     pedido, erro, status = PedidoController.confirmar(usuario_id, dados)
-    
+
     if erro:
-        return jsonify({"erro": f"Erro no controller: {erro}"}), status
-        
+        return jsonify({"erro": erro}), status
+
     return jsonify(serializar_pedido(pedido)), status
 
 @pedido_bp.route("/meus", methods=["GET"])
@@ -135,10 +133,11 @@ def avancar_status(pedido_id, usuario_id):
 
 @pedido_bp.route("/status/opcoes", methods=["GET"])
 def listar_status():
-    """Retorna todos os status e formas de pagamento disponíveis."""
+    """Retorna todos os status, formas de pagamento e tipos de entrega disponíveis."""
     return jsonify({
         "status":            [s.value for s in StatusPedido],
         "formas_pagamento":  [f.value for f in FormaPagamento],
+        "tipos_entrega":     [t.value for t in TipoEntrega],
     }), 200
 
 # ── SSE — Acompanhamento em tempo real ───────────────────────────────────────
