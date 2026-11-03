@@ -55,6 +55,12 @@ def _avancar_status_pedido(app, pedido_id: int, status_esperado: str, proximo_st
                 "status": proximo_status,
                 "pedido_id": pedido_id,
             })
+
+            # Gera nota fiscal simulada e envia por e-mail quando o pedido for entregue
+            if proximo_status == "ENTREGUE":
+                from services.nota_fiscal_service import emitir_e_notificar
+                emitir_e_notificar(pedido)
+
         except Exception as exc:
             db.session.rollback()
             print(f"[Simulador] Erro ao avançar pedido {pedido_id}: {exc}")
