@@ -56,6 +56,17 @@ def _avancar_status_pedido(app, pedido_id: int, status_esperado: str, proximo_st
                 "pedido_id": pedido_id,
             })
 
+            # Envia e-mail de notificação de status ao usuário
+            usuario = pedido.usuario
+            if usuario and usuario.email:
+                from services.email_store import enviar_notificacao_status
+                enviar_notificacao_status(
+                    email=usuario.email,
+                    nome=usuario.nome,
+                    pedido_id=pedido_id,
+                    status=proximo_status,
+                )
+
             # Gera nota fiscal simulada e envia por e-mail quando o pedido for entregue
             if proximo_status == "ENTREGUE":
                 from services.nota_fiscal_service import emitir_e_notificar
