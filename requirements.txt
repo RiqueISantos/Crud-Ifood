@@ -12,3 +12,4 @@ twilio
 sendgrid
 geopy
 APScheduler==3.10.4
+reportlab==4.2.5
