@@ -68,7 +68,11 @@ def sms_enviar():
     if not ok:
         return jsonify({"erro": resultado}), 500
 
-    return jsonify({"mensagem": "Código enviado via WhatsApp"}), 200
+    from flask import current_app
+    resposta = {"mensagem": "Código enviado via WhatsApp"}
+    if current_app.debug:
+        resposta["codigo_dev"] = resultado
+    return jsonify(resposta), 200
 
 
 @usuario_bp.route("/sms/verificar", methods=["POST"])
@@ -111,7 +115,11 @@ def login_solicitar():
     if not ok:
         return jsonify({"erro": resultado}), 500
 
-    return jsonify({"mensagem": "Código enviado via WhatsApp"}), 200
+    from flask import current_app
+    resposta = {"mensagem": "Código enviado via WhatsApp"}
+    if current_app.debug:
+        resposta["codigo_dev"] = resultado
+    return jsonify(resposta), 200
 
 
 @usuario_bp.route("/login", methods=["POST"])

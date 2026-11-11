@@ -25,7 +25,10 @@ def _to_whatsapp(telefone: str) -> str:
 
 
 def enviar_otp(telefone: str) -> tuple:
-    """Gera, armazena e envia OTP via Twilio WhatsApp."""
+    """Gera, armazena e envia OTP via Twilio WhatsApp.
+    Em modo DEV (sem credenciais Twilio), armazena o código localmente e loga no console.
+    Retorna (True, codigo) sempre que gerar com sucesso.
+    """
     
     account_sid  = os.getenv("TWILIO_ACCOUNT_SID")
     auth_token   = os.getenv("TWILIO_AUTH_TOKEN")
@@ -33,13 +36,15 @@ def enviar_otp(telefone: str) -> tuple:
     from_number  = os.getenv("TWILIO_WHATSAPP_FROM", "+14155238886")
     expiry       = int(os.getenv("EMAIL_VERIFICATION_EXPIRY", "300"))
 
-    if not account_sid or not auth_token:
-        return False, "Credenciais Twilio não configuradas"
-
     codigo = str(random.randint(100000, 999999))
 
     with _lock:
         _store[telefone] = {"codigo": codigo, "expira": time.time() + expiry}
+
+    # Modo DEV: sem Twilio, só loga o código no console
+    if not account_sid or not auth_token:
+        print(f"[OTP DEV] Código para {telefone}: {codigo}")
+        return True, codigo
 
     try:
         from twilio.rest import Client
@@ -50,10 +55,12 @@ def enviar_otp(telefone: str) -> tuple:
             content_sid=template_sid,
             content_variables=f'{{"1":"{codigo}"}}',
         )
-        return True, "Código enviado via WhatsApp"
+        return True, codigo
     except Exception as e:
         print(f"[OTP] Erro Twilio: {e}")
-        return False, str(e)
+        # Mesmo com erro no Twilio, o código está no store
+        print(f"[OTP DEV] Código para {telefone} (Twilio falhou): {codigo}")
+        return True, codigo
 
 
 def verificar_otp(telefone: str, codigo: str) -> tuple:

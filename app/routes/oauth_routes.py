@@ -136,7 +136,11 @@ def google_enviar_sms():
     if not ok:
         return jsonify({"erro": resultado}), 500
 
-    return jsonify({"mensagem": "Código enviado via WhatsApp"}), 200
+    from flask import current_app
+    resposta = {"mensagem": "Código enviado via WhatsApp"}
+    if current_app.debug:
+        resposta["codigo_dev"] = resultado
+    return jsonify(resposta), 200
 
 
 @oauth_bp.route("/auth/google/confirmar", methods=["POST"])
@@ -162,9 +166,17 @@ def google_confirmar():
         # Verifica se o telefone já pertence a outro usuário
         outro = Usuario.query.filter_by(telefone=telefone).first()
         if outro and outro.id != usuario_id:
+            # Número já pertence a outro usuário — faz login nesse usuário diretamente
+            jwt_token = criar_token_jwt(outro.id)
             return jsonify({
-                "erro": "Este número já está cadastrado em outra conta. Faça login pelo celular."
-            }), 409
+                "access_token": jwt_token,
+                "usuario": {
+                    "id":       outro.id,
+                    "nome":     outro.nome,
+                    "email":    outro.email,
+                    "telefone": outro.telefone,
+                },
+            }), 200
 
         usuario.telefone = telefone
         db.session.commit()
@@ -258,9 +270,17 @@ def google_dev_bypass():
     if telefone and not usuario.telefone:
         outro = Usuario.query.filter_by(telefone=telefone).first()
         if outro and outro.id != usuario_id:
+            # Número já pertence a outro usuário — faz login nesse usuário diretamente
+            jwt_token = criar_token_jwt(outro.id)
             return jsonify({
-                "erro": "Este número já está cadastrado em outra conta."
-            }), 409
+                "access_token": jwt_token,
+                "usuario": {
+                    "id":       outro.id,
+                    "nome":     outro.nome,
+                    "email":    outro.email,
+                    "telefone": outro.telefone,
+                },
+            }), 200
         usuario.telefone = telefone
         db.session.commit()
 
