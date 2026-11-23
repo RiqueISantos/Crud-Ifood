@@ -49,6 +49,15 @@ def _avancar_status_pedido(app, pedido_id: int, status_esperado: str, proximo_st
             db.session.commit()
             print(f"[Simulador] Pedido {pedido_id}: {status_esperado} → {proximo_status}")
 
+            # Grava no histórico de status
+            from app.database import db as _db
+            from sqlalchemy import text
+            _db.session.execute(
+                text("INSERT INTO pedido_status_historico (pedido_id, status) VALUES (:pid, :st)"),
+                {"pid": pedido_id, "st": proximo_status}
+            )
+            _db.session.commit()
+
             # Notifica clientes SSE em tempo real
             from services.sse_manager import emitir
             emitir(pedido_id, {

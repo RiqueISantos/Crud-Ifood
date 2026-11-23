@@ -20,7 +20,6 @@ def serializar_produto(produto):
 
 @produto_bp.route("/restaurante/<int:restaurante_id>", methods=["GET"])
 def listar_por_restaurante(restaurante_id):
-    """Retorna os produtos cadastrados de um restaurante específico."""
     resultado, erro, status = ProdutoController.listar_por_restaurante(restaurante_id)
     if erro:
         return jsonify({"erro": erro}), status
@@ -30,20 +29,16 @@ def listar_por_restaurante(restaurante_id):
 @produto_bp.route("/", methods=["POST"])
 @jwt_required
 def criar_produto(usuario_id):
-    """Cadastra um novo produto vinculado ao restaurante autenticado."""
     dados = request.get_json() or {}
     dados["restaurante_id"] = usuario_id
-
     produto, erro, status = ProdutoController.criar(dados)
     if erro:
         return jsonify({"erro": erro}), status
-
     return jsonify(serializar_produto(produto)), status
 
 
 @produto_bp.route("/busca", methods=["GET"])
 def buscar_produtos():
-    """Busca produtos no catálogo exclusivamente pelo nome."""
     filtros = {
         "q": request.args.get("q"),
         "restaurante_id": request.args.get("restaurante_id", type=int),
@@ -57,14 +52,11 @@ def buscar_produtos():
 @produto_bp.route("/<int:id>", methods=["PUT"])
 @jwt_required
 def atualizar_produto(id, usuario_id):
-    """Atualiza dados do produto (apenas o próprio restaurante dono pode alterar)."""
     produto, erro_busca, status_busca = ProdutoController.buscar_por_id(id)
     if erro_busca:
         return jsonify({"erro": erro_busca}), status_busca
-
     if produto.restaurante_id != usuario_id:
-        return jsonify({"erro": "Acesso negado: este produto não pertence ao seu restaurante"}), 403
-
+        return jsonify({"erro": "Acesso negado"}), 403
     dados = request.get_json() or {}
     resultado, erro, status = ProdutoController.atualizar(id, dados)
     if erro:
@@ -75,14 +67,11 @@ def atualizar_produto(id, usuario_id):
 @produto_bp.route("/<int:id>", methods=["DELETE"])
 @jwt_required
 def deletar_produto(id, usuario_id):
-    """Remove um produto do cardápio (apenas o restaurante dono pode remover)."""
     produto, erro_busca, status_busca = ProdutoController.buscar_por_id(id)
     if erro_busca:
         return jsonify({"erro": erro_busca}), status_busca
-
     if produto.restaurante_id != usuario_id:
-        return jsonify({"erro": "Acesso negado: este produto não pertence ao seu restaurante"}), 403
-
+        return jsonify({"erro": "Acesso negado"}), 403
     resultado, erro, status = ProdutoController.deletar(id)
     if erro:
         return jsonify({"erro": erro}), status

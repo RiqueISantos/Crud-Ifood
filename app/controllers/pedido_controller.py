@@ -151,11 +151,20 @@ class PedidoController:
         try:
             db.session.commit()
 
-            # Inicia a simulação automática de progresso do pedido
-            from app import scheduler
-            from services.simulador_pedido import simular_progresso
-            import flask
-            simular_progresso(scheduler, flask.current_app._get_current_object(), pedido.id, pedido.status.value)
+            # Grava status inicial no histórico
+            from sqlalchemy import text
+            db.session.execute(
+                text("INSERT INTO pedido_status_historico (pedido_id, status) VALUES (:pid, :st)"),
+                {"pid": pedido.id, "st": pedido.status.value}
+            )
+            db.session.commit()
+
+            # Notifica o cliente via SSE que o pedido foi criado
+            from services.sse_manager import emitir
+            emitir(pedido.id, {
+                "status": pedido.status.value,
+                "pedido_id": pedido.id,
+            })
 
             return pedido, None, 201
         except Exception as exc:
@@ -221,6 +230,62 @@ class PedidoController:
 
         try:
             db.session.commit()
+
+            # Grava no histórico de status
+            from sqlalchemy import text
+            db.session.execute(
+                text("INSERT INTO pedido_status_historico (pedido_id, status) VALUES (:pid, :st)"),
+                {"pid": pedido.id, "st": proximo.value}
+            )
+            db.session.commit()
+
+            # Notifica o cliente via SSE em tempo real
+            from services.sse_manager import emitir
+            emitir(pedido.id, {
+                "status": proximo.value,
+                "pedido_id": pedido.id,
+            })
+
+            # Quando sai para entrega, agenda entrega automática em 5 segundos
+            if proximo == StatusPedido.SAIU_PARA_ENTREGA:
+                from app import scheduler
+                from datetime import datetime, timedelta, timezone
+                import flask
+
+                app = flask.current_app._get_current_object()
+                pedido_id_copia = pedido.id
+
+                def _entregar_automatico():
+                    with app.app_context():
+                        from app.database import db as _db
+                        from app.models.models import Pedido as _Pedido, StatusPedido as _Status
+                        from services.sse_manager import emitir as _emitir
+                        from sqlalchemy import text as _text
+
+                        p = _db.session.get(_Pedido, pedido_id_copia)
+                        if not p or p.status != _Status.SAIU_PARA_ENTREGA:
+                            return
+
+                        p.status = _Status.ENTREGUE
+                        try:
+                            _db.session.commit()
+                            _db.session.execute(
+                                _text("INSERT INTO pedido_status_historico (pedido_id, status) VALUES (:pid, :st)"),
+                                {"pid": p.id, "st": "ENTREGUE"}
+                            )
+                            _db.session.commit()
+                            _emitir(p.id, {"status": "ENTREGUE", "pedido_id": p.id})
+                        except Exception:
+                            _db.session.rollback()
+
+                scheduler.add_job(
+                    func=_entregar_automatico,
+                    trigger="date",
+                    run_date=datetime.now(tz=timezone.utc) + timedelta(seconds=5),
+                    id=f"entrega_auto_{pedido.id}",
+                    replace_existing=True,
+                )
+
             return pedido, None, 200
         except Exception as exc:
             db.session.rollback()
